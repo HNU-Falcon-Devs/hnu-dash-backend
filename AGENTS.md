@@ -4,7 +4,7 @@
 
 - Supabase/PostgreSQL is authoritative. This repository owns schemas, migrations, RLS, authorization, synchronization, reconciliation, and the canonical shared integration contract. Web and Mobile are separate consumers.
 - Obtain WhiteTree Orchestrator approval for cross-project architecture or scope changes. Implement only approved, scoped assignments after inspecting existing code and requirements.
-- Treat PR #2's `docs/contracts/integration-v0.md` as proposed, not approved. Do not implement unresolved D-1 through D-8 as settled requirements or create competing contract specifications.
+- The backend repository owns the canonical shared integration contract. Do not implement proposed contract behavior or unresolved decisions without WhiteTree Orchestrator approval, and do not create competing specifications.
 
 ## Security boundaries
 
