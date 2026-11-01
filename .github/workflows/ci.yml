@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Repository validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate repository files
+        run: |
+          test -s README.md
+          grep -Fq 'authoritative Supabase/PostgreSQL backend for HNU DASH' README.md
+          test "$(cat .github/CODEOWNERS)" = '* @Syris-EkzD'
