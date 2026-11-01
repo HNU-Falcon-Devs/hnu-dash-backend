@@ -1,0 +1,11 @@
+{
+  "name": "hnu-dash-backend",
+  "private": true,
+  "scripts": {
+    "supabase": "supabase",
+    "validate": "python3 scripts/validate.py"
+  },
+  "devDependencies": {
+    "supabase": "2.122.0"
+  }
+}
