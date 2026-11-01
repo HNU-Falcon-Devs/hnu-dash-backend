@@ -11,9 +11,20 @@ jobs:
     name: Repository validation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Validate repository files
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run validate
+      - run: npm run supabase -- --version
+      - name: Start local Supabase
+        run: npm run supabase -- start
+      - name: Reset and lint database
         run: |
-          test -s README.md
-          grep -Fq 'authoritative Supabase/PostgreSQL backend for HNU DASH' README.md
-          test "$(cat .github/CODEOWNERS)" = '* @Syris-EkzD'
+          npm run supabase -- db reset
+          npm run supabase -- db lint
+      - name: Stop local Supabase
+        if: always()
+        run: npm run supabase -- stop
