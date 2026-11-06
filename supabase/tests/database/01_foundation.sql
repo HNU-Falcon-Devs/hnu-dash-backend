@@ -1,6 +1,6 @@
 begin;
 -- Runs against a reset local Supabase DB. All users and student records are synthetic.
-select plan(49);
+select plan(51);
 
 select has_table('public','students','student roster table exists');
 select has_table('public','events','event table exists');
@@ -43,24 +43,6 @@ select is(public.import_students('[
  {"student_id":"00012346","full_name":"Demo Beta","program_code":"BSIT","year_level":2}
 ]'::jsonb),2,'admin imports synthetic students with leading zeros');
 
-select throws_ok($test$update public.event_checkpoints
- set label='Edited after freeze'
- where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'$test$,'42501');
-select throws_ok($test$delete from public.event_checkpoints
- where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'$test$,'42501');
-select throws_ok($test$select public.update_draft_event(
- 'cccccccc-cccc-4ccc-8ccc-cccccccccccc','Edited after freeze',
- '2040-01-01 07:00+08','2040-01-02 08:00+08',array[1,2]::smallint[])
- $test$,'42501');
-select throws_ok($test$select public.freeze_event_roster(
- 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')$test$,'42501');
-select throws_ok($test$insert into public.event_roster(
- event_id,student_id,student_name,program_code,year_level,frozen_at)
- values ('cccccccc-cccc-4ccc-8ccc-cccccccccccc',
- '00012345','Forgery','BSIT',1,now())$test$,'42501');
-select throws_ok($test$delete from public.event_roster
- where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'$test$,'42501');
-
 select throws_ok($test$select public.import_students('[
  {"student_id":"00012345","full_name":"First","program_code":"BSIT","year_level":1},
  {"student_id":"00012345","full_name":"Duplicate","program_code":"BSIT","year_level":1}
@@ -76,9 +58,8 @@ select throws_ok($test$select public.bind_student_account(
  '44444444-4444-4444-8444-444444444444','00012346')$test$,'22023');
 -- A second organization's checkpoint provides a real RLS target for cross-scope edits.
 select lives_ok($test$insert into public.event_checkpoints
- (id,event_id,label,direction,opens_at,closes_at)
- values ('ffffffff-ffff-4fff-8fff-ffffffffffff',
- 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+ (event_id,label,direction,opens_at,closes_at)
+ values ('dddddddd-dddd-4ddd-8ddd-dddddddddddd',
  'Other org checkpoint','IN','2040-01-01 08:00+08','2040-01-01 09:00+08')
 $test$, 'admin can create the other organization checkpoint');
 
@@ -107,14 +88,13 @@ select throws_ok($test$insert into public.event_checkpoints(event_id,label,direc
 select throws_ok($test$insert into public.event_checkpoints(event_id,label,direction,opens_at,closes_at)
  values ('dddddddd-dddd-4ddd-8ddd-dddddddddddd','Foreign Checkpoint','IN',
  '2040-01-01 08:00+08','2040-01-01 09:00+08')$test$,'42501');
-select is((with changed as (update public.event_checkpoints
-    set label='Foreign Edited' where id='ffffffff-ffff-4fff-8fff-ffffffffffff'
-    returning id) select count(*)::int from changed),0,
- 'cross-organization checkpoint update affects no rows');
-select is((with removed as (delete from public.event_checkpoints
-    where id='ffffffff-ffff-4fff-8fff-ffffffffffff' returning id)
-    select count(*)::int from removed),0,
- 'cross-organization checkpoint delete affects no rows');
+select lives_ok($test$update public.event_checkpoints
+ set label='Foreign Edited'
+ where event_id='dddddddd-dddd-4ddd-8ddd-dddddddddddd'$test$,
+ 'cross-organization checkpoint update is filtered');
+select lives_ok($test$delete from public.event_checkpoints
+ where event_id='dddddddd-dddd-4ddd-8ddd-dddddddddddd'$test$,
+ 'cross-organization checkpoint delete is filtered');
 select throws_ok($test$select public.bind_student_account(
  '33333333-3333-4333-8333-333333333333','00012346')$test$,'42501');
 
@@ -137,9 +117,33 @@ select is(public.freeze_event_roster('cccccccc-cccc-4ccc-8ccc-cccccccccccc'),2,
 select throws_ok($test$insert into public.event_checkpoints(event_id,label,direction,opens_at,closes_at)
  values ('cccccccc-cccc-4ccc-8ccc-cccccccccccc','After Freeze','OUT',
  '2040-01-01 08:00+08','2040-01-01 10:00+08')$test$,'42501');
+select throws_ok($test$update public.event_checkpoints
+ set label='Edited after freeze'
+ where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'$test$,'42501');
+select throws_ok($test$delete from public.event_checkpoints
+ where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'$test$,'42501');
+select throws_ok($test$select public.update_draft_event(
+ 'cccccccc-cccc-4ccc-8ccc-cccccccccccc','Edited after freeze',
+ '2040-01-01 07:00+08','2040-01-02 08:00+08',array[1,2]::smallint[])
+ $test$,'42501');
+select throws_ok($test$select public.freeze_event_roster(
+ 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')$test$,'42501');
+select throws_ok($test$insert into public.event_roster(
+ event_id,student_id,student_name,program_code,year_level,frozen_at)
+ values ('cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+ '00012345','Forgery','BSIT',1,now())$test$,'42501');
+select throws_ok($test$delete from public.event_roster
+ where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'$test$,'42501');
+
 select throws_ok($test$select public.import_students('[{"student_id":"OTHER","full_name":"Other","program_code":"BSIT","year_level":1}]'::jsonb)$test$,'42501');
 
 reset role;
+select is((select label from public.event_checkpoints
+ where event_id='dddddddd-dddd-4ddd-8ddd-dddddddddddd'),
+ 'Other org checkpoint','foreign checkpoint update was blocked by RLS');
+select is((select count(*)::int from public.event_checkpoints
+ where event_id='dddddddd-dddd-4ddd-8ddd-dddddddddddd'),1,
+ 'foreign checkpoint deletion was blocked by RLS');
 update public.students set full_name='Edited Demo' where student_id='00012345';
 select is((select student_name from public.event_roster
  where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc' and student_id='00012345'),
