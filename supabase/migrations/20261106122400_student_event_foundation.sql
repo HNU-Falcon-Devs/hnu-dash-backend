@@ -149,6 +149,43 @@ as $$
   );
 $$;
 
+-- Every checkpoint mutation serializes on its parent event row. The frozen-state
+-- and schedule checks below use the *locked* row, not a pre-lock RLS snapshot.
+-- This is shared with update_draft_event and freeze_event_roster.
+create function public.check_checkpoint_mutation()
+returns trigger language plpgsql security definer set search_path = ''
+as $
+declare
+  e public.events%rowtype;
+  target_event uuid;
+begin
+  target_event := case when tg_op = 'DELETE' then old.event_id else new.event_id end;
+  if tg_op = 'UPDATE' and new.event_id is distinct from old.event_id then
+    raise exception 'Checkpoint event association is immutable' using errcode='22023';
+  end if;
+  select * into e from public.events where id = target_event for update;
+  if not found or e.state <> 'DRAFT' or e.roster_frozen_at is not null
+    or not public.can_manage_org(e.organization_id) then
+    raise exception 'Checkpoint changes require an editable draft in scope'
+      using errcode='42501';
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  if new.opens_at < e.starts_at or new.closes_at > e.ends_at then
+    raise exception 'Checkpoint window must stay within the event schedule'
+      using errcode='22023';
+  end if;
+  return new;
+end;
+$;
+
+create trigger checkpoint_edit_guard
+before insert or update or delete on public.event_checkpoints
+for each row execute function public.check_checkpoint_mutation();
+
+revoke all on function public.check_checkpoint_mutation() from public, anon, authenticated;
+
 -- All new relations are denied by default; explicitly grant only scoped operations.
 alter table public.students enable row level security;
 alter table public.profiles enable row level security;
@@ -288,6 +325,14 @@ begin
   if not public.can_edit_draft_event(eid) then
     raise exception 'No editable draft event in scope' using errcode='42501';
   end if;
+  -- The event row is locked, so checkpoint writes cannot race this check.
+  if exists (
+    select 1 from public.event_checkpoints c where c.event_id=eid
+      and (c.opens_at < new_starts_at or c.closes_at > new_ends_at)
+  ) then
+    raise exception 'Event schedule would exclude an existing checkpoint'
+      using errcode='22023';
+  end if;
   update public.events set title=new_title, starts_at=new_starts_at,
     ends_at=new_ends_at, target_year_levels=new_target_year_levels where id=eid;
 end;
@@ -303,6 +348,20 @@ begin
   select * into e from public.events where id=eid for update;
   if not found or not public.can_edit_draft_event(eid) then
     raise exception 'No editable draft event in scope' using errcode='42501';
+  end if;
+  -- Checkpoints are required, but no fixed IN/OUT combination is imposed.
+  -- Parent-row locks guarantee a concurrent checkpoint mutation cannot pass
+  -- the guard after this freeze has committed.
+  if not exists (select 1 from public.event_checkpoints c where c.event_id=eid) then
+    raise exception 'Cannot freeze an event without attendance checkpoints'
+      using errcode='22023';
+  end if;
+  if exists (
+    select 1 from public.event_checkpoints c where c.event_id=eid
+      and (c.opens_at < e.starts_at or c.closes_at > e.ends_at)
+  ) then
+    raise exception 'Checkpoint window is outside the event schedule'
+      using errcode='22023';
   end if;
   insert into public.event_roster(event_id,student_id,student_name,program_code,year_level,frozen_at)
     select eid,s.student_id,s.full_name,s.program_code,s.year_level,now()
