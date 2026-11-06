@@ -1,6 +1,6 @@
 begin;
 -- Runs against a reset local Supabase DB. All users and student records are synthetic.
-select plan(23);
+select plan(25);
 
 select has_table('public','students','student roster table exists');
 select has_table('public','events','event table exists');
