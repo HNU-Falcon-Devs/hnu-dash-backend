@@ -32,6 +32,6 @@ The CLI prints local API and database connection details after start. Stop the s
 
 Once a schema change is agreed, run `npm run supabase -- migration new <name>`, edit the generated SQL in `supabase/migrations`, and review its constraints, grants, and policies. With the local stack running, use `npm run supabase -- db reset` to apply migrations from scratch and `npm run supabase -- db lint` to check the database. Keep backend migrations in this repository only.
 
-Run `npm run validate` for credential-free configuration and migration-layout checks. CI also starts the local stack, resets the database, and lints it on PRs and `main`. There is no domain SQL to test yet.
+Run `npm run validate` for credential-free configuration and migration-layout checks. CI also starts the local stack, resets the database, lints it, and runs `npm run supabase -- test db` (pgTAP) on PRs and `main`. Roster converter smoke test: `python3 scripts/csv_to_import_json.py test/fixtures/synthetic_roster.csv`.
 
 Do not use real student data in foundation testing or store or proxy HNU MIS passwords.
