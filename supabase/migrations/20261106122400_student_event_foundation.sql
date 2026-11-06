@@ -51,7 +51,7 @@ create table public.events (
   created_at timestamptz not null default now(),
   constraint event_dates_valid check (starts_at < ends_at),
   constraint event_years_valid check (
-    array_length(target_year_levels,1) between 1 and 6
+    coalesce(array_length(target_year_levels,1),0) between 1 and 6
     and target_year_levels <@ array[1,2,3,4,5,6]::smallint[]
     and array_position(target_year_levels,null) is null
   )
