@@ -25,6 +25,8 @@ jobs:
         run: |
           npm run supabase -- db reset
           npm run supabase -- db lint
+      - name: Run database authorization and import tests
+        run: npm run supabase -- test db
       - name: Stop local Supabase
         if: always()
         run: npm run supabase -- stop
