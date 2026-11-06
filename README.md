@@ -12,7 +12,7 @@ Only the Backend will decide official attendance. A saved or uploaded scan by it
 
 ## Current status
 
-**Development foundation ready; no live attendance service yet.** The local database environment, database-change workflow, and automated checks are set up. Student accounts, event management, permissions, scan processing, and official attendance results are not implemented.
+**Milestone 1 development foundation in progress; not deployed.** The new schema supports admin-controlled students and identity linkage, scoped draft events, configurable checkpoints, CSV roster import, and frozen roster snapshots. Scanning, synchronization, event finalization, official attendance results, and production access are not implemented.
 
 A shared integration plan is proposed in [Backend PR #2](https://github.com/HNU-Falcon-Devs/hnu-dash-backend/pull/2). It is **not yet approved or a working API**. Authentication and related decisions remain open.
 
