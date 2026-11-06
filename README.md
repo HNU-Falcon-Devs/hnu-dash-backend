@@ -12,9 +12,19 @@ Only the Backend will decide official attendance. A saved or uploaded scan by it
 
 ## Current status
 
-**Milestone 1 development foundation in progress; not deployed.** The new schema supports admin-controlled students and identity linkage, scoped draft events, configurable checkpoints, CSV roster import, and frozen roster snapshots. Scanning, synchronization, event finalization, official attendance results, and production access are not implemented.
+**Milestone 1 development foundation implemented locally; not deployed.** The new schema supports admin-controlled students and identity linkage, scoped draft events, configurable checkpoints, CSV roster import, and frozen roster snapshots. Scanning, synchronization, event finalization, official attendance results, and production access are not implemented.
 
 A shared integration plan is proposed in [Backend PR #2](https://github.com/HNU-Falcon-Devs/hnu-dash-backend/pull/2). It remains **unapproved and is not a working API**. The authorized Milestone 1 operations are documented separately in [Milestone 1 Web integration](docs/integration/milestone-1-web.md); they use Supabase Auth for the MVP.
+
+## Pilot delivery direction
+
+The working target is an **approximately 600-student BSIT pilot, tentatively February 2027**, subject to HNU approval. This is a delivery direction, not approval to deploy or process real student data.
+
+- **Build a usable vertical slice:** Implement authoritative event, roster, staff-assignment, attendance, and student-self-view operations in Backend with the necessary Web interfaces. Then connect the Flutter mobile QR scanner to the real backend. Use synthetic data and direct API tests during development; **do not build a disposable Web scanner**.
+- **Harden for the pilot:** Add durable offline mobile capture, safe retries and idempotent sync, server reconciliation, auditability, role/organization enforcement, protected roster data, and end-to-end testing. Defer HNU MIS integration, fines, clearance, additional dashboards, and separate middleware unless a concrete pilot requirement warrants them.
+- **Keep infrastructure minimal:** Retain the three existing repositories. Plan for Web on Vercel, authoritative Backend on Supabase/PostgreSQL, and Flutter/SQLite on Android. Web and Mobile consume Backend independently. Do not add an Express/Render layer without a demonstrated need. Use **Supabase Auth** for the MVP with verified `@hnu.edu.ph` email accounts; defer HNU MIS integration.
+- **Resolve only blocking decisions before each slice:** The [proposed integration contract in PR #2](https://github.com/HNU-Falcon-Devs/hnu-dash-backend/pull/2) is not approved. Settle the relevant roster/QR source, identity and permissions, event/attendance rules, offline trust, privacy, and transport choices before implementing their dependent behavior; do not treat draft payloads as deployed APIs.
+- **Release gate:** Before using real student records, verify backend authorization/RLS and negative tests, mobile data isolation and protection, replay/retry behavior, realistic pilot-volume testing, recovery/backups, and the required privacy/organizational approvals. Existing PR CI is only the foundation: introduce isolated staging, controlled production releases/rollback, and backward-compatible migrations before live use. Routine application updates should avoid interrupting the whole system, but **unconditional zero downtime is not guaranteed**.
 
 ## Developer setup
 
