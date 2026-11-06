@@ -29,6 +29,10 @@ jobs:
           npm run supabase -- db lint
       - name: Run database authorization and import tests
         run: npm run supabase -- test db
+      - name: Verify checkpoint freeze race with two database sessions
+        env:
+          HNU_DASH_ISOLATED_TEST_DB: '1'
+        run: python3 scripts/test_checkpoint_freeze_race.py
       - name: Stop local Supabase
         if: always()
         run: npm run supabase -- stop
