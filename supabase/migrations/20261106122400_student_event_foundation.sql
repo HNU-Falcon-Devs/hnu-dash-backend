@@ -154,7 +154,7 @@ $$;
 -- This is shared with update_draft_event and freeze_event_roster.
 create function public.check_checkpoint_mutation()
 returns trigger language plpgsql security definer set search_path = ''
-as $
+as $$
 declare
   e public.events%rowtype;
   target_event uuid;
@@ -178,7 +178,7 @@ begin
   end if;
   return new;
 end;
-$;
+$$;
 
 create trigger checkpoint_edit_guard
 before insert or update or delete on public.event_checkpoints
