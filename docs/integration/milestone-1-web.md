@@ -48,13 +48,19 @@ are governed by RLS and narrow column privileges.
 | Update draft event | `rpc('update_draft_event',{eid,new_title,new_starts_at,new_ends_at,new_target_year_levels})` | Leader/admin while DRAFT and not frozen |
 | Manage checkpoints | `from('event_checkpoints').insert(...)`, `update({label,direction,opens_at,closes_at,sort_order})`, or `delete()` | Leader/admin, only editable DRAFT; `event_id` is immutable |
 | Import roster CSV | Parse to JSON `{rows:[{student_id,full_name,program_code,year_level}]}` then `rpc('import_students',{rows})` | Platform admin only, atomic import; upserts existing IDs; duplicate IDs within same batch reject all |
-| Freeze event roster | `rpc('freeze_event_roster',{eid})` | Leader/admin; selects active BSIT students in selected year levels; immutable snapshot; rejects empty |
+| Freeze event roster | `rpc('freeze_event_roster',{eid})` | Leader/admin; requires at least one valid checkpoint within the event schedule and a nonempty eligible BSIT roster; creates immutable snapshot |
 | Read frozen roster | `from('event_roster').select(...).eq('event_id',eid)` | Leader/admin of owning organization |
 | Bind verified student account | `rpc('bind_student_account',{actor_id,sid})` | Platform admin only, after independent ID verification; unique student link |
 
 `event_checkpoints` columns: `event_id`, `label`, `direction` (`IN`/`OUT`),
 `opens_at`, `closes_at`, `sort_order`. They are arbitrary per event, with
 no fixed daily sessions and no universal Time-Out requirement.
+Every checkpoint must have `opens_at < closes_at`, be wholly contained in the
+owning event's `starts_at`–`ends_at` window, and be configured **before**
+freezing. Updating an event's schedule cannot exclude existing checkpoints.
+A checkpoint change and roster freeze serialize on the event row: after a
+successful freeze, checkpoint additions/edits/deletions are rejected.
+A valid IN-only event is permitted; no arbitrary Time-Out is added.
 
 `events.target_year_levels` is a nonempty smallint array (1–6), default
 `[1,2,3,4]`. This pilot roster intentionally selects active BSIT students.
