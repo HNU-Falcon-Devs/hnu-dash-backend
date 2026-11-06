@@ -1,6 +1,6 @@
 begin;
 -- Runs against a reset local Supabase DB. All users and student records are synthetic.
-select plan(51);
+select plan(55);
 
 select has_table('public','students','student roster table exists');
 select has_table('public','events','event table exists');
@@ -117,11 +117,13 @@ select is(public.freeze_event_roster('cccccccc-cccc-4ccc-8ccc-cccccccccccc'),2,
 select throws_ok($test$insert into public.event_checkpoints(event_id,label,direction,opens_at,closes_at)
  values ('cccccccc-cccc-4ccc-8ccc-cccccccccccc','After Freeze','OUT',
  '2040-01-01 08:00+08','2040-01-01 10:00+08')$test$,'42501');
-select throws_ok($test$update public.event_checkpoints
+select lives_ok($test$update public.event_checkpoints
  set label='Edited after freeze'
- where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'$test$,'42501');
-select throws_ok($test$delete from public.event_checkpoints
- where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'$test$,'42501');
+ where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'$test$,
+ 'RLS filters frozen checkpoint updates');
+select lives_ok($test$delete from public.event_checkpoints
+ where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'$test$,
+ 'RLS filters frozen checkpoint deletes');
 select throws_ok($test$select public.update_draft_event(
  'cccccccc-cccc-4ccc-8ccc-cccccccccccc','Edited after freeze',
  '2040-01-01 07:00+08','2040-01-02 08:00+08',array[1,2]::smallint[])
@@ -138,6 +140,18 @@ select throws_ok($test$delete from public.event_roster
 select throws_ok($test$select public.import_students('[{"student_id":"OTHER","full_name":"Other","program_code":"BSIT","year_level":1}]'::jsonb)$test$,'42501');
 
 reset role;
+select is((select label from public.event_checkpoints
+ where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'),
+ 'Morning In','frozen checkpoint update did not change the record');
+select is((select count(*)::int from public.event_checkpoints
+ where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'),1,
+ 'frozen checkpoint delete did not remove records');
+-- Even an operator bypassing ordinary RLS cannot casually mutate frozen checkpoints.
+select throws_ok($test$update public.event_checkpoints
+ set label='Operator overwrite'
+ where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'$test$,'42501');
+select throws_ok($test$delete from public.event_checkpoints
+ where event_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc'$test$,'42501');
 select is((select label from public.event_checkpoints
  where event_id='dddddddd-dddd-4ddd-8ddd-dddddddddddd'),
  'Other org checkpoint','foreign checkpoint update was blocked by RLS');
