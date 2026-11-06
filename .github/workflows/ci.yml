@@ -19,12 +19,20 @@ jobs:
       - run: npm ci
       - run: npm run validate
       - run: npm run supabase -- --version
+      - name: Test CSV import conversion
+        run: python3 -m unittest discover -s test -p 'test_*.py' -v
       - name: Start local Supabase
         run: npm run supabase -- start
       - name: Reset and lint database
         run: |
           npm run supabase -- db reset
           npm run supabase -- db lint
+      - name: Run database authorization and import tests
+        run: npm run supabase -- test db
+      - name: Verify checkpoint freeze race with two database sessions
+        env:
+          HNU_DASH_ISOLATED_TEST_DB: '1'
+        run: python3 scripts/test_checkpoint_freeze_race.py
       - name: Stop local Supabase
         if: always()
         run: npm run supabase -- stop

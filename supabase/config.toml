@@ -8,3 +8,12 @@ enabled = true
 
 [db.seed]
 enabled = false
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true
+double_confirm_changes = true
+
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/public/restrict_hnu_signup"

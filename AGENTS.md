@@ -9,7 +9,7 @@
 ## Security boundaries
 
 - Enforce privileges and organization scope server-side. Never expose service-role credentials to clients or commit secrets or real student data.
-- Preserve raw scan history and auditability. The authentication provider and HNU MIS integration remain unapproved.
+- Preserve raw scan history and auditability. For the approved MVP foundation, use Supabase Auth with verified `@hnu.edu.ph` email restriction; the HNU MIS integration remains deferred. Email domain alone does not grant a student binding or privileged role.
 
 ## Workflow and handoff
 

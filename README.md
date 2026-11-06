@@ -12,9 +12,9 @@ Only the Backend will decide official attendance. A saved or uploaded scan by it
 
 ## Current status
 
-**Development foundation ready; no live attendance service yet.** The local database environment, database-change workflow, and automated checks are set up. Student accounts, event management, permissions, scan processing, and official attendance results are not implemented.
+**Milestone 1 development foundation implemented locally; not deployed.** The new schema supports admin-controlled students and identity linkage, scoped draft events, configurable checkpoints, CSV roster import, and frozen roster snapshots. Scanning, synchronization, event finalization, official attendance results, and production access are not implemented.
 
-A shared integration plan is proposed in [Backend PR #2](https://github.com/HNU-Falcon-Devs/hnu-dash-backend/pull/2). It is **not yet approved or a working API**. Supabase Auth is approved for the MVP; its verified `@hnu.edu.ph` signup restriction and administrator-controlled identity binding are required. Other integration decisions remain open.
+A shared integration plan is proposed in [Backend PR #2](https://github.com/HNU-Falcon-Devs/hnu-dash-backend/pull/2). It remains **unapproved and is not a working API**. The authorized Milestone 1 operations are documented separately in [Milestone 1 Web integration](docs/integration/milestone-1-web.md); they use Supabase Auth for the MVP.
 
 ## Pilot delivery direction
 
@@ -42,6 +42,6 @@ The CLI prints local API and database connection details after start. Stop the s
 
 Once a schema change is agreed, run `npm run supabase -- migration new <name>`, edit the generated SQL in `supabase/migrations`, and review its constraints, grants, and policies. With the local stack running, use `npm run supabase -- db reset` to apply migrations from scratch and `npm run supabase -- db lint` to check the database. Keep backend migrations in this repository only.
 
-Run `npm run validate` for credential-free configuration and migration-layout checks. CI also starts the local stack, resets the database, and lints it on PRs and `main`. There is no domain SQL to test yet.
+Run `npm run validate` for credential-free configuration and migration-layout checks. CI also starts the local stack, resets the database, lints it, and runs `npm run supabase -- test db` (pgTAP) on PRs and `main`. Roster converter smoke test: `python3 scripts/csv_to_import_json.py test/fixtures/synthetic_roster.csv`.
 
 Do not use real student data in foundation testing or store or proxy HNU MIS passwords.

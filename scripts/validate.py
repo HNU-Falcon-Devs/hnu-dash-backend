@@ -15,6 +15,9 @@ assert config.get("project_id") == "hnu-dash-backend", "Unexpected local project
 assert config.get("db", {}).get("major_version") == 17, "Expected PostgreSQL 17"
 assert config["db"]["migrations"]["enabled"] is True, "Migrations must stay enabled"
 assert config["db"]["seed"]["enabled"] is False, "Seed data is deferred"
+assert config["auth"]["email"]["enable_confirmations"] is True, "Email verification must be required"
+assert config["auth"]["hook"]["before_user_created"]["enabled"] is True, "Signup guard must stay enabled"
+assert config["auth"]["hook"]["before_user_created"]["uri"] == "pg-functions://postgres/public/restrict_hnu_signup", "Unexpected signup hook"
 assert MIGRATIONS.is_dir(), "Migration directory is missing"
 
 for path in MIGRATIONS.iterdir():
