@@ -37,6 +37,10 @@ jobs:
         env:
           HNU_DASH_ISOLATED_TEST_DB: '1'
         run: python3 scripts/test_event_open_race.py
+      - name: Verify concurrent UUID retries and unique accepted captures
+        env:
+          HNU_DASH_ISOLATED_TEST_DB: '1'
+        run: python3 scripts/test_scan_ingestion_races.py
       - name: Stop local Supabase
         if: always()
         run: npm run supabase -- stop
