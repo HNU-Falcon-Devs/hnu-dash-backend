@@ -151,3 +151,106 @@ counts = sql(f"""select
 if counts != ["3", "2", "1"]:
     raise AssertionError(f"Unexpected durable receipt/uniqueness counts: {counts}")
 print("PASS: UUID retry blocked then replayed; distinct concurrent scan kept duplicate evidence")
+
+# Revocation uses FOR UPDATE on event_staff, while scan ingestion takes
+# FOR SHARE on the same effective assignment row. Confirm both orderings:
+# an already-authorized in-flight receipt commits before revocation; a scan
+# waiting behind a committed revocation is denied without any new evidence.
+assignment_id = sql(f"""select id from public.event_staff
+ where event_id='{EVENT}' and staff_user_id='{STAFF}' and revoked_at is null;""")
+if not assignment_id:
+    raise AssertionError("No eligible active Staff assignment to revoke")
+
+IN_FLIGHT_UUID = "75000000-0000-4000-8000-000000000004"
+POST_REVOKE_UUID = "75000000-0000-4000-8000-000000000005"
+
+
+def revoke_sql(label, assignment, hold=False):
+    return f"""
+begin;
+set application_name='{label}';
+set local role authenticated;
+select set_config('request.jwt.claim.sub','{ADMIN}',true);
+select public.revoke_event_staff('{assignment}');
+{'select pg_sleep(9);' if hold else ''}
+commit;
+"""
+
+
+def ensure_blocked(label):
+    if not until(f"""select exists(select 1 from pg_stat_activity a
+         where a.application_name='{label}'
+           and cardinality(pg_blocking_pids(a.pid)) > 0);"""):
+        raise AssertionError(f"Session was not blocked on the assignment row: {label}")
+
+
+def ensure_sleep(label):
+    if not until(f"""select exists(select 1 from pg_stat_activity
+         where application_name='{label}' and wait_event='PgSleep');"""):
+        raise AssertionError(f"Session did not reach its transaction barrier: {label}")
+
+
+# Case 1: receipt already authorized and in flight; revocation waits until
+# the receipt commits. CP1 is already accepted, so this is a duplicate receipt.
+scan_before = start_session(actor_sql(
+    "scan-before-revocation", request(IN_FLIGHT_UUID, CP1), hold=True))
+ensure_sleep("scan-before-revocation")
+revoke_after = start_session(revoke_sql(
+    "revocation-after-scan", assignment_id))
+ensure_blocked("revocation-after-scan")
+scan_out, scan_err = scan_before.communicate(timeout=35)
+revoke_out, revoke_err = revoke_after.communicate(timeout=35)
+if scan_before.returncode or revoke_after.returncode:
+    raise AssertionError(
+        f"In-flight scan / revocation failed: {scan_err} / {revoke_err}")
+scan_receipts = [line for line in scan_out.splitlines()
+                 if line.strip().startswith("{")]
+if len(scan_receipts) != 1:
+    raise AssertionError("Expected one in-flight scan receipt")
+scan_receipt = json.loads(scan_receipts[0])
+if scan_receipt["outcome"] != "duplicate" or scan_receipt["replayed"]:
+    raise AssertionError(f"Unexpected in-flight scan result: {scan_receipt}")
+if sql(f"""select count(*) from public.attendance_scans
+          where scan_id='{IN_FLIGHT_UUID}';""") != "1":
+    raise AssertionError("In-flight scan receipt was not committed")
+if sql(f"""select count(*) from public.event_staff
+          where id='{assignment_id}' and revoked_at is not null;""") != "1":
+    raise AssertionError("Revocation did not commit after the authorized scan")
+
+# Reassign using the authorized admin RPC, not a direct assignment write.
+sql(f"""
+begin;
+set local role authenticated;
+select set_config('request.jwt.claim.sub','{ADMIN}',true);
+select public.assign_event_staff('{EVENT}','{STAFF}');
+commit;
+""")
+new_assignment = sql(f"""select id from public.event_staff
+ where event_id='{EVENT}' and staff_user_id='{STAFF}'
+   and revoked_at is null;""")
+if not new_assignment or new_assignment == assignment_id:
+    raise AssertionError("Admin re-assignment did not create a new active period")
+
+# Case 2: a revocation is already in flight; subsequent scan is blocked on
+# the same row and MUST fail after that revocation commits.
+revoke_before = start_session(revoke_sql(
+    "revocation-before-scan", new_assignment, hold=True))
+ensure_sleep("revocation-before-scan")
+scan_after = start_session(actor_sql(
+    "scan-after-revocation", request(POST_REVOKE_UUID, CP1)))
+ensure_blocked("scan-after-revocation")
+revoke_out, revoke_err = revoke_before.communicate(timeout=35)
+after_out, after_err = scan_after.communicate(timeout=35)
+if revoke_before.returncode:
+    raise AssertionError(f"Revocation failed: {revoke_err}")
+if scan_after.returncode == 0 or "Scan submission not permitted" not in after_err:
+    raise AssertionError(
+        f"Scan did not fail closed after revocation: {after_out} / {after_err}")
+if sql(f"""select count(*) from public.attendance_scans
+          where scan_id='{POST_REVOKE_UUID}';""") != "0":
+    raise AssertionError("Revoked Staff created durable scan evidence")
+if sql(f"""select count(*) from public.event_staff
+          where id='{new_assignment}' and revoked_at is not null;""") != "1":
+    raise AssertionError("Final revocation did not commit")
+print("PASS: scan/revocation ordering serialized in both directions; post-revoke scan denied")
+
