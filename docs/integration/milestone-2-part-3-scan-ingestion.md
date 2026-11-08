@@ -56,11 +56,12 @@ time**, not the device capture time. Outcomes:
   matching event checkpoint with its server-time window open, and frozen
   roster membership; only one accepted capture per
   `(event_id, checkpoint_id, student_id)`.
-- `rejected`: authorized submission against a valid event checkpoint was
-  recorded, but the event is not OPEN, the **server** receipt time is outside
-  its `[opens_at, closes_at)` window, or the student is absent from the
+- `rejected`: an authorized **new submission to an OPEN event** and valid
+  event checkpoint was recorded, but the **server** receipt time was outside
+  its `[opens_at, closes_at)` window or the student was absent from the
   event's frozen roster. Reasons are intentionally not distinguished in the
   caller-facing response to avoid exposing roster membership.
+  A non-OPEN event is **not** a persisted `rejected` receipt: the RPC fails.
 - `duplicate`: a **different scan UUID** targeted a capture already
   accepted for that event/checkpoint/student. The attempt is durably recorded
   with its own UUID/time, but is not another accepted capture.
@@ -70,8 +71,12 @@ time**, not the device capture time. Outcomes:
   without creating another record. The original outcome can be any of the
   above three values.
 
-An identical retry is allowed after a checkpoint's window closes **only if
-the user still has effective online Staff authorization for the event**.
+An identical retry is allowed after a checkpoint's window closes (or the
+event subsequently leaves OPEN) **only if the user still has effective online
+Staff authorization for the event**. The existing UUID and all submitted
+fields are checked before evaluating the current event state or checkpoint
+capture window. A legitimate retry returns the original receipt, without
+new evidence. New UUIDs require the event to be OPEN.
 Revocation, inactive membership/organization, unverified identity, or
 cross-event assignment loss blocks even replaying an old scan. Reusing an
 existing scan UUID for any different event, checkpoint, Student ID, or
@@ -91,16 +96,26 @@ A request is permitted only when **all** apply:
    receipt). Incorrect, missing, or cross-event checkpoint references are
    denied without exposing another organization's records.
 
-The event must be `OPEN`, the server receipt timestamp must lie within
+Every **new online scan submission** requires event state `OPEN`; otherwise
+the RPC raises SQLSTATE `55000` **without inserting a receipt**, even for
+an otherwise authorized, assigned Staff member. This preserves the ability
+to edit or delete DRAFT checkpoints without attendance-receipt FK blockers.
+A valid authorized, identical-UUID replay is handled before this state
+restriction, preserving its original receipt and timestamp.
+
+Within an OPEN event, the server receipt timestamp must lie within
 `opens_at <= received_at < closes_at`, and the Student ID must be in the
 immutable frozen event roster **for the receipt to be accepted**.
+An OPEN-event submission to a valid matching checkpoint with an invalid
+window or absent roster entry still creates a durable `rejected` receipt.
 All validation, the receipt insert, duplicate classification, and unique
 constraints occur transactionally in PostgreSQL. Event-row and authorization
 row locks serialize against competing state changes and Staff revocations.
 
 Failure codes: `42501` for unauthenticated, unauthorized, inactive or
-out-of-scope event/checkpoint operations; `22023` for invalid inputs;
-`23505` for conflicting scan UUID reuse; `40001` if evidence persistence
+out-of-scope event/checkpoint operations; `55000` for **new** online
+submissions when the event is not OPEN (no receipt); `22023` for invalid
+inputs; `23505` for conflicting scan UUID reuse; `40001` if evidence persistence
 cannot be safely confirmed. RPC/network/availability failures are **not**
 receipts. Never interpret a missing response or a transport timeout as
 acceptance; retry the **same UUID and unchanged payload**, while still
