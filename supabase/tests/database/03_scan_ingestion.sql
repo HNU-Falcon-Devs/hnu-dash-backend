@@ -1,6 +1,6 @@
 begin;
 -- All identities, rosters, and scans are synthetic and rolled back.
-select plan(72);
+select plan(73);
 
 select has_table('public','attendance_scans','durable scan evidence relation exists');
 select ok(not has_table_privilege('authenticated','public.attendance_scans','INSERT'),
@@ -11,6 +11,8 @@ select ok(not has_table_privilege('authenticated','public.attendance_scans','DEL
   'authenticated clients cannot delete evidence');
 select ok(not has_table_privilege('anon','public.attendance_scans','SELECT'),
   'anonymous users cannot enumerate scans');
+select ok(not has_column_privilege('authenticated','public.event_checkpoints','id','INSERT'),
+  'authenticated clients cannot supply internal checkpoint IDs');
 select ok(not has_function_privilege('anon',
   'public.ingest_attendance_scan(uuid,uuid,uuid,text)','EXECUTE'),
   'anonymous role cannot call scan ingestion');
@@ -44,30 +46,32 @@ insert into public.events(id,organization_id,created_by,title,starts_at,ends_at)
  ('63000000-0000-4000-8000-000000000003','61000000-0000-4000-8000-000000000001','62000000-0000-4000-8000-000000000001','Draft Ingestion Event',
     now()-interval '3 hours',now()+interval '3 hours');
 
+-- Test operator must supply deterministic checkpoint UUIDs. Normal browser
+-- clients intentionally lack INSERT(id); the trigger still validates auth.uid().
 reset role;
-set local role authenticated;
 select set_config('request.jwt.claim.sub','62000000-0000-4000-8000-000000000001',true);
 
 select lives_ok($test$insert into public.event_checkpoints(
  id,event_id,label,direction,opens_at,closes_at) values
  ('64000000-0000-4000-8000-000000000001','63000000-0000-4000-8000-000000000001','Current In','IN',now()-interval '30 minutes',now()+interval '30 minutes')$test$,
- 'admin configures current IN checkpoint');
+ 'isolated operator seeds current IN checkpoint');
 select lives_ok($test$insert into public.event_checkpoints(
  id,event_id,label,direction,opens_at,closes_at) values
  ('64000000-0000-4000-8000-000000000002','63000000-0000-4000-8000-000000000001','Current Out','OUT',now()-interval '30 minutes',now()+interval '30 minutes')$test$,
- 'admin configures independent OUT checkpoint');
+ 'isolated operator seeds independent OUT checkpoint');
 select lives_ok($test$insert into public.event_checkpoints(
  id,event_id,label,direction,opens_at,closes_at) values
  ('64000000-0000-4000-8000-000000000003','63000000-0000-4000-8000-000000000001','Past In','IN',now()-interval '2 hours',now()-interval '1 hour')$test$,
- 'admin configures expired checkpoint inside event schedule');
+ 'isolated operator seeds expired checkpoint inside event schedule');
 select lives_ok($test$insert into public.event_checkpoints(
  id,event_id,label,direction,opens_at,closes_at) values
  ('64000000-0000-4000-8000-000000000004','63000000-0000-4000-8000-000000000002','Foreign In','IN',now()-interval '30 minutes',now()+interval '30 minutes')$test$,
- 'admin configures other-org checkpoint');
+ 'isolated operator seeds other-org checkpoint');
 select lives_ok($test$insert into public.event_checkpoints(
  id,event_id,label,direction,opens_at,closes_at) values
  ('64000000-0000-4000-8000-000000000005','63000000-0000-4000-8000-000000000003','Draft In','IN',now()-interval '30 minutes',now()+interval '30 minutes')$test$,
- 'admin configures draft checkpoint');
+ 'isolated operator seeds draft checkpoint');
+set local role authenticated;
 select ok(public.freeze_event_roster('63000000-0000-4000-8000-000000000001')>0,'roster frozen for scan event');
 select ok(public.freeze_event_roster('63000000-0000-4000-8000-000000000002')>0,'roster frozen for other event');
 select is((select event_state from public.open_event('63000000-0000-4000-8000-000000000001')),'OPEN','scan event opened');
