@@ -73,6 +73,14 @@ select public.freeze_event_roster('{EVENT}');
 commit;
 """)
 
+# Previous synthetic concurrency fixtures may be present in the same local stack.
+# Capture the exact pre-activation snapshot rather than assuming one BSIT student.
+before_checkpoints, before_roster = sql(f"""select
+ (select count(*) from public.event_checkpoints where event_id='{EVENT}'),
+ (select count(*) from public.event_roster where event_id='{EVENT}');""").split("|")
+if before_checkpoints != "1" or int(before_roster) < 1:
+    raise AssertionError("Fixture has no valid checkpoint or frozen roster")
+
 first = start_session(f"""
 begin;
 set application_name='hnu-dash-first-opener';
@@ -112,7 +120,8 @@ state, timestamp, checkpoints, roster = sql(f"""select state,
  (select count(*) from public.event_checkpoints where event_id='{EVENT}'),
  (select count(*) from public.event_roster where event_id='{EVENT}')
 from public.events where id='{EVENT}';""").split("|")
-if (state, timestamp, checkpoints, roster) != ("OPEN", "1", "1", "1"):
+if (state, timestamp, checkpoints, roster) != (
+        "OPEN", "1", before_checkpoints, before_roster):
     raise AssertionError(
         f"Unexpected committed event state: {(state, timestamp, checkpoints, roster)}")
 print("PASS: first opener committed; second blocked then rejected; roster/checkpoints preserved")
