@@ -108,6 +108,14 @@ begin
     );
   end if;
 
+  -- New online submissions require OPEN. Check this only after the
+  -- authorized identical-UUID replay path; a prior durable receipt may be
+  -- replayed even when the event has since left OPEN.
+  if ev.state <> 'OPEN' then
+    raise exception 'Online scan ingestion requires an OPEN event'
+      using errcode = '55000';
+  end if;
+
   -- Bad or cross-event checkpoint identifiers are denied without revealing
   -- whether some other organization's checkpoint exists.
   select * into checkpoint from public.event_checkpoints c
@@ -119,8 +127,7 @@ begin
 
   receipt_time := clock_timestamp();
   outcome_value := 'rejected';
-  if ev.state = 'OPEN'
-    and receipt_time >= checkpoint.opens_at
+  if receipt_time >= checkpoint.opens_at
     and receipt_time < checkpoint.closes_at
     and exists (
       select 1 from public.event_roster r
