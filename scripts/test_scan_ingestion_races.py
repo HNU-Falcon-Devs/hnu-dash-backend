@@ -116,8 +116,16 @@ def run_race(prefix, first_id, second_id, checkpoint, expected):
         raise AssertionError("Concurrent scan did not wait on database uniqueness")
     if one.returncode or two.returncode:
         raise AssertionError(f"Concurrent submissions failed: {first_error} / {second_error}")
-    first = json.loads(first_output.splitlines()[-1])
-    second = json.loads(second_output.splitlines()[-1])
+    # The transaction contains SET and pg_sleep statements, so the final
+    # stdout line is not necessarily the receipt JSON.
+    def receipt(output):
+        records = [line for line in output.splitlines() if line.strip().startswith("{")]
+        if len(records) != 1:
+            raise AssertionError(f"Expected one JSON receipt in session output: {output!r}")
+        return json.loads(records[0])
+
+    first = receipt(first_output)
+    second = receipt(second_output)
     if first["outcome"] != "accepted" or first["replayed"]:
         raise AssertionError(f"First submission not accepted: {first}")
     if second["outcome"] != expected["outcome"] or second["replayed"] != expected["replayed"]:
