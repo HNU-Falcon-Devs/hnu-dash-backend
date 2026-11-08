@@ -20,6 +20,7 @@ PSQL = ["docker", "exec", "-i", matching[0], "psql", "-X", "-q", "-A",
 
 ORG = "71000000-0000-4000-8000-000000000001"
 STAFF = "72000000-0000-4000-8000-000000000001"
+ADMIN = "72000000-0000-4000-8000-000000000002"
 EVENT = "73000000-0000-4000-8000-000000000001"
 CP1 = "74000000-0000-4000-8000-000000000001"
 CP2 = "74000000-0000-4000-8000-000000000002"
@@ -59,7 +60,10 @@ sql(f"""
 begin;
 insert into auth.users(id,instance_id,aud,role,email,email_confirmed_at,created_at,updated_at)
 values ('{STAFF}','00000000-0000-0000-0000-000000000000',
-'authenticated','authenticated','scan-race@hnu.edu.ph',now(),now(),now());
+'authenticated','authenticated','scan-race@hnu.edu.ph',now(),now(),now()),
+('{ADMIN}','00000000-0000-0000-0000-000000000000',
+'authenticated','authenticated','admin-scan-race@hnu.edu.ph',now(),now(),now());
+insert into public.platform_admins(user_id) values ('{ADMIN}');
 insert into public.students(student_id,full_name,program_code,year_level)
 values ('{STUDENT}','Synthetic Scan Race','BSIT',1);
 insert into public.organizations(id,slug,name)
@@ -69,7 +73,9 @@ values ('{ORG}','{STAFF}','staff','{STAFF}');
 insert into public.events(id,organization_id,created_by,title,starts_at,ends_at)
 values ('{EVENT}','{ORG}','{STAFF}','Synthetic Concurrent Scan Event',
 now()-interval '2 hours',now()+interval '2 hours');
--- Privileged fixtures only; application writes below use the authenticated role.
+-- Isolated operator fixture supplies deterministic UUIDs; the checkpoint
+-- trigger still verifies a real, independently provisioned Admin account.
+select set_config('request.jwt.claim.sub','{ADMIN}',true);
 insert into public.event_checkpoints(id,event_id,label,direction,opens_at,closes_at)
 values
 ('{CP1}','{EVENT}','Concurrent IN','IN',now()-interval '30 minutes',now()+interval '30 minutes'),
