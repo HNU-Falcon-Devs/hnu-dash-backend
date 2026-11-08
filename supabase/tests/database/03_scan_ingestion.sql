@@ -1,6 +1,6 @@
 begin;
 -- All identities, rosters, and scans are synthetic and rolled back.
-select plan(73);
+select plan(76);
 
 select has_table('public','attendance_scans','durable scan evidence relation exists');
 select ok(not has_table_privilege('authenticated','public.attendance_scans','INSERT'),
@@ -114,10 +114,15 @@ select throws_ok($test$select public.ingest_attendance_scan('65000000-0000-4000-
 select throws_ok($test$select public.ingest_attendance_scan('65000000-0000-4000-8000-000000000001','63000000-0000-4000-8000-000000000001','64000000-0000-4000-8000-000000000002','00000123456')$test$,'23505');
 select throws_ok($test$select public.ingest_attendance_scan('65000000-0000-4000-8000-000000000001','63000000-0000-4000-8000-000000000003','64000000-0000-4000-8000-000000000005','00000123456')$test$,'23505');
 
-select is((public.ingest_attendance_scan('65000000-0000-4000-8000-000000000002','63000000-0000-4000-8000-000000000001','64000000-0000-4000-8000-000000000001','00000123456')->>'outcome'),'duplicate',
-  'new UUID for the same accepted checkpoint+student is marked duplicate');
-select is((public.ingest_attendance_scan('65000000-0000-4000-8000-000000000002','63000000-0000-4000-8000-000000000001','64000000-0000-4000-8000-000000000001','00000123456')->>'replayed')::boolean,false,
-  'separate duplicate attempt is a new receipt, not an idempotent replay');
+select ok(set_config('test.scan_duplicate',
+  public.ingest_attendance_scan('65000000-0000-4000-8000-000000000002','63000000-0000-4000-8000-000000000001','64000000-0000-4000-8000-000000000001','00000123456')::text,
+  true) <> '', 'distinct duplicate-attempt receipt was stored');
+select is((current_setting('test.scan_duplicate')::jsonb->>'outcome'),
+  'duplicate','new UUID for the same capture is marked duplicate');
+select is((current_setting('test.scan_duplicate')::jsonb->>'replayed')::boolean,
+  false,'first duplicate attempt is not an idempotent replay');
+select is((public.ingest_attendance_scan('65000000-0000-4000-8000-000000000002','63000000-0000-4000-8000-000000000001','64000000-0000-4000-8000-000000000001','00000123456')->>'replayed')::boolean,
+  true,'retrying duplicate attempt UUID replays original duplicate receipt');
 select is((select count(*)::int from public.attendance_scans
   where event_id='63000000-0000-4000-8000-000000000001' and checkpoint_id='64000000-0000-4000-8000-000000000001' and student_id='00000123456'
     and outcome='accepted'),1,'at most one accepted capture at the checkpoint');
@@ -169,7 +174,7 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub','62000000-0000-4000-8000-000000000002',true);
 
 select throws_ok($test$select public.ingest_attendance_scan('65000000-0000-4000-8000-000000000007','63000000-0000-4000-8000-000000000001','64000000-0000-4000-8000-000000000001','00000123456')$test$,'42501');
-select ok((select count(*)::int from public.attendance_scans where event_id='63000000-0000-4000-8000-000000000001')>=6,
+select ok((select count(*)::int from public.attendance_scans where event_id='63000000-0000-4000-8000-000000000001')=5,
   'Leader may audit organization receipts but cannot submit Staff scans');
 
 reset role;
@@ -209,8 +214,12 @@ select set_config('request.jwt.claim.sub','62000000-0000-4000-8000-000000000003'
 
 select throws_ok($test$select public.ingest_attendance_scan('65000000-0000-4000-8000-000000000001','63000000-0000-4000-8000-000000000001','64000000-0000-4000-8000-000000000001','00000123456')$test$,'42501');
 select throws_ok($test$select public.ingest_attendance_scan('65000000-0000-4000-8000-000000000007','63000000-0000-4000-8000-000000000001','64000000-0000-4000-8000-000000000001','00000123456')$test$,'42501');
-select is((select count(*)::int from public.attendance_scans),0,
-  'revoked Staff loses online receipt reads');
+select is((select count(*)::int from public.attendance_scans
+  where event_id='63000000-0000-4000-8000-000000000001'),0,
+  'revoked Staff loses receipts for the revoked event');
+select is((select count(*)::int from public.attendance_scans
+  where event_id='63000000-0000-4000-8000-000000000003'),1,
+  'Staff retains receipt visibility only for separately assigned DRAFT event');
 select is((select count(*)::int from public.events where id='63000000-0000-4000-8000-000000000001'),0,
   'revoked Staff loses event visibility');
 
