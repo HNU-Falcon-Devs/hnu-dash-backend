@@ -66,7 +66,10 @@ select is(public.freeze_event_roster('41000000-0000-4000-8000-000000000001'),1,
  'active roster is explicitly frozen before opening');
 select is(public.freeze_event_roster('41000000-0000-4000-8000-000000000002'),1,
  'other-organization roster is separately frozen');
-select ok(public.assign_event_staff('41000000-0000-4000-8000-000000000002','21000000-0000-4000-8000-000000000004') is not null,
+select ok(set_config('test.foreign_assignment_id',
+ public.assign_event_staff('41000000-0000-4000-8000-000000000002',
+                           '21000000-0000-4000-8000-000000000004')::text,
+ true) <> '',
  'platform Admin assigns eligible Staff in other organization');
 select is((select count(*)::int from public.event_staff where event_id='41000000-0000-4000-8000-000000000002' and revoked_at is null),
   1,'Admin assignment creates one active record');
@@ -87,7 +90,7 @@ select throws_ok($test$select public.assign_event_staff('41000000-0000-4000-8000
 select throws_ok($test$select public.assign_event_staff('41000000-0000-4000-8000-000000000001','21000000-0000-4000-8000-000000000009')$test$,'22023');
 select throws_ok($test$select public.assign_event_staff('41000000-0000-4000-8000-000000000002','21000000-0000-4000-8000-000000000004')$test$,'42501');
 select throws_ok($test$select public.revoke_event_staff(
-  (select id from public.event_staff where event_id='41000000-0000-4000-8000-000000000002' limit 1)
+  current_setting('test.foreign_assignment_id')::uuid
 )$test$,'42501');
 select is((select count(*)::int from public.event_staff where event_id='41000000-0000-4000-8000-000000000002'),0,
  'RLS hides foreign organization assignment rows');
