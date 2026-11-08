@@ -33,6 +33,10 @@ jobs:
         env:
           HNU_DASH_ISOLATED_TEST_DB: '1'
         run: python3 scripts/test_checkpoint_freeze_race.py
+      - name: Verify competing DRAFT to OPEN transitions with two sessions
+        env:
+          HNU_DASH_ISOLATED_TEST_DB: '1'
+        run: python3 scripts/test_event_open_race.py
       - name: Stop local Supabase
         if: always()
         run: npm run supabase -- stop

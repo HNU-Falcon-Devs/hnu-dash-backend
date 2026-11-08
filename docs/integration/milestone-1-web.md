@@ -3,7 +3,7 @@
 The backend is **Supabase Auth + PostgreSQL/PostgREST**. No Express server.
 This milestone implements draft-event and roster operations, **not** scan upload,
 attendance finalization, public student search, or production deployment.
-See PR #2 for an **unapproved** future integration proposal; this file records
+PR #2 is a **closed, superseded** proposal; this file records
 only operations actually implemented here.
 
 ## Authentication and permissions
@@ -27,8 +27,9 @@ only operations actually implemented here.
 - A platform admin may create organizations and assign `leader` or `staff`
   memberships; only a verified, active leader in an organization (or platform
   admin) can manage its drafts, checkpoints, or roster.
-- Student information isn't generally selectable by browser clients. Event roster
-  snapshots are visible only to the owning organization's leader/admin.
+- Student information isn't generally selectable by browser clients. Frozen event
+  rosters are visible to authorized leaders/admins and active assigned event Staff
+  under the Milestone 2 rules.
 - All event-facing times are `timestamptz` (ISO/RFC3339 offsets when sent).
   Display these in `Asia/Manila`.
 
@@ -44,7 +45,7 @@ are governed by RLS and narrow column privileges.
 | Create organization | `from('organizations').insert({slug,name})` | Platform admin only |
 | Assign/update org member | `from('organization_memberships').insert({organization_id,user_id,role})`, or update `role,active` | Platform admin only; no user self-promotion |
 | Create event | `from('events').insert({organization_id,title,starts_at,ends_at,target_year_levels}).select()` | Leader/admin of organization; starts in DRAFT only |
-| List/get events | `from('events').select(...).eq('organization_id',id)` | Org member/admin; RLS scope independent of supplied filter |
+| List/get events | `from('events').select(...).eq('organization_id',id)` | Leader/admin in scope, or active assigned Staff for their own events; RLS independent of caller filters |
 | Update draft event | `rpc('update_draft_event',{eid,new_title,new_starts_at,new_ends_at,new_target_year_levels})` | Leader/admin while DRAFT and not frozen |
 | Manage checkpoints | `from('event_checkpoints').insert(...)`, `update({label,direction,opens_at,closes_at,sort_order})`, or `delete()` | Leader/admin, only editable DRAFT; `event_id` is immutable |
 | Import roster CSV | Parse to JSON `{rows:[{student_id,full_name,program_code,year_level}]}` then `rpc('import_students',{rows})` | Platform admin only, atomic import; upserts existing IDs; duplicate IDs within same batch reject all |
