@@ -27,8 +27,9 @@ only operations actually implemented here.
 - A platform admin may create organizations and assign `leader` or `staff`
   memberships; only a verified, active leader in an organization (or platform
   admin) can manage its drafts, checkpoints, or roster.
-- Student information isn't generally selectable by browser clients. Event roster
-  snapshots are visible only to the owning organization's leader/admin.
+- Student information isn't generally selectable by browser clients. Frozen event
+  rosters are visible to authorized leaders/admins and active assigned event Staff
+  under the Milestone 2 rules.
 - All event-facing times are `timestamptz` (ISO/RFC3339 offsets when sent).
   Display these in `Asia/Manila`.
 
