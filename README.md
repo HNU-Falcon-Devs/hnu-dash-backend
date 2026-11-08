@@ -14,7 +14,7 @@ Only the Backend will decide official attendance. A saved or uploaded scan by it
 
 **Milestone 1 development foundation implemented locally; not deployed.** The new schema supports admin-controlled students and identity linkage, scoped draft events, configurable checkpoints, CSV roster import, and frozen roster snapshots. Scanning, synchronization, event finalization, official attendance results, and production access are not implemented.
 
-A shared integration plan is proposed in [Backend PR #2](https://github.com/HNU-Falcon-Devs/hnu-dash-backend/pull/2). It remains **unapproved and is not a working API**. The authorized Milestone 1 operations are documented separately in [Milestone 1 Web integration](docs/integration/milestone-1-web.md); they use Supabase Auth for the MVP.
+Historical [Backend PR #2](https://github.com/HNU-Falcon-Devs/hnu-dash-backend/pull/2) was closed without approval and superseded. Implemented operations are documented in [Milestone 1 Web integration](docs/integration/milestone-1-web.md) and [Milestone 2, Part 1](docs/integration/milestone-2-part-1.md); the MVP uses Supabase Auth.
 
 ## Pilot delivery direction
 
