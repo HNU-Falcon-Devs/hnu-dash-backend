@@ -45,7 +45,7 @@ are governed by RLS and narrow column privileges.
 | Create organization | `from('organizations').insert({slug,name})` | Platform admin only |
 | Assign/update org member | `from('organization_memberships').insert({organization_id,user_id,role})`, or update `role,active` | Platform admin only; no user self-promotion |
 | Create event | `from('events').insert({organization_id,title,starts_at,ends_at,target_year_levels}).select()` | Leader/admin of organization; starts in DRAFT only |
-| List/get events | `from('events').select(...).eq('organization_id',id)` | Org member/admin; RLS scope independent of supplied filter |
+| List/get events | `from('events').select(...).eq('organization_id',id)` | Leader/admin in scope, or active assigned Staff for their own events; RLS independent of caller filters |
 | Update draft event | `rpc('update_draft_event',{eid,new_title,new_starts_at,new_ends_at,new_target_year_levels})` | Leader/admin while DRAFT and not frozen |
 | Manage checkpoints | `from('event_checkpoints').insert(...)`, `update({label,direction,opens_at,closes_at,sort_order})`, or `delete()` | Leader/admin, only editable DRAFT; `event_id` is immutable |
 | Import roster CSV | Parse to JSON `{rows:[{student_id,full_name,program_code,year_level}]}` then `rpc('import_students',{rows})` | Platform admin only, atomic import; upserts existing IDs; duplicate IDs within same batch reject all |
