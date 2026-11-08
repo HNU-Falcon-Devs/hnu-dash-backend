@@ -3,7 +3,7 @@
 The backend is **Supabase Auth + PostgreSQL/PostgREST**. No Express server.
 This milestone implements draft-event and roster operations, **not** scan upload,
 attendance finalization, public student search, or production deployment.
-See PR #2 for an **unapproved** future integration proposal; this file records
+PR #2 is a **closed, superseded** proposal; this file records
 only operations actually implemented here.
 
 ## Authentication and permissions
