@@ -1,6 +1,6 @@
 begin;
 -- All identities, rosters, and scans are synthetic and rolled back.
-select plan(76);
+select plan(84);
 
 select has_table('public','attendance_scans','durable scan evidence relation exists');
 select ok(not has_table_privilege('authenticated','public.attendance_scans','INSERT'),
@@ -137,11 +137,85 @@ select is((public.ingest_attendance_scan('65000000-0000-4000-8000-000000000004',
   'rejected receipt can be retried idempotently');
 select is((public.ingest_attendance_scan('65000000-0000-4000-8000-000000000005','63000000-0000-4000-8000-000000000001','64000000-0000-4000-8000-000000000003','00000123456')->>'outcome'),'rejected',
   'authoritative server time rejects a closed capture window');
-select is((public.ingest_attendance_scan('65000000-0000-4000-8000-000000000006','63000000-0000-4000-8000-000000000003','64000000-0000-4000-8000-000000000005','00000123456')->>'outcome'),'rejected',
-  'assigned Staff cannot accept captures before event OPEN');
+-- No new online receipt is allowed while the event is DRAFT, even if the
+-- caller has valid active Staff membership and event-specific assignment.
+select throws_ok($test$select public.ingest_attendance_scan(
+ '65000000-0000-4000-8000-000000000006',
+ '63000000-0000-4000-8000-000000000003',
+ '64000000-0000-4000-8000-000000000005','00000123456')$test$,'55000');
 select is((select count(*)::int from public.attendance_scans
-  where scan_id in ('65000000-0000-4000-8000-000000000004','65000000-0000-4000-8000-000000000005','65000000-0000-4000-8000-000000000006') and outcome='rejected'),
-  3,'all three validation rejections are recorded immutably');
+  where event_id='63000000-0000-4000-8000-000000000003'),0,
+  'new DRAFT submission leaves no durable receipt or checkpoint FK');
+select is((select count(*)::int from public.attendance_scans
+  where scan_id in ('65000000-0000-4000-8000-000000000004','65000000-0000-4000-8000-000000000005') and outcome='rejected'),
+  2,'invalid roster and closed window on OPEN still persist rejected evidence');
+
+-- Recheck actual management ability, not just the absence of a matching
+-- receipt. This would fail with FK RESTRICT under the original behavior.
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub','62000000-0000-4000-8000-000000000001',true);
+select lives_ok($test$delete from public.event_checkpoints
+  where id='64000000-0000-4000-8000-000000000005'
+    and event_id='63000000-0000-4000-8000-000000000003'$test$,
+  'authorized Admin can delete the DRAFT checkpoint');
+select is((select count(*)::int from public.event_checkpoints
+  where id='64000000-0000-4000-8000-000000000005'),0,
+  'draft checkpoint deletion is effective rather than RLS-filtered');
+
+-- Synthetic historical accepted receipt proves the replay branch remains
+-- functional after that checkpoint's real server-time window has closed.
+reset role;
+insert into public.attendance_scans(
+ scan_id,event_id,checkpoint_id,student_id,submitted_by,received_at,outcome)
+values (
+ '65000000-0000-4000-8000-000000000009',
+ '63000000-0000-4000-8000-000000000001',
+ '64000000-0000-4000-8000-000000000003',
+ '00000123456','62000000-0000-4000-8000-000000000003',
+ now()-interval '90 minutes','accepted');
+set local role authenticated;
+select set_config('request.jwt.claim.sub','62000000-0000-4000-8000-000000000003',true);
+select is((public.ingest_attendance_scan(
+ '65000000-0000-4000-8000-000000000009',
+ '63000000-0000-4000-8000-000000000001',
+ '64000000-0000-4000-8000-000000000003',
+ '00000123456')->>'outcome'),'accepted',
+ 'historical accepted receipt replays after the checkpoint closed');
+select is((public.ingest_attendance_scan(
+ '65000000-0000-4000-8000-000000000009',
+ '63000000-0000-4000-8000-000000000001',
+ '64000000-0000-4000-8000-000000000003',
+ '00000123456')->>'replayed')::boolean,true,
+ 'closed-window retry returns the original receipt, not a new rejection');
+
+-- Simulate a later event state in isolated tests, without implementing any
+-- additional lifecycle transition. Authorized identical replays must remain
+-- possible, but brand-new IDs are rejected outside OPEN.
+reset role;
+update public.events set state='SYNCING'
+  where id='63000000-0000-4000-8000-000000000001';
+set local role authenticated;
+select set_config('request.jwt.claim.sub','62000000-0000-4000-8000-000000000003',true);
+select is((public.ingest_attendance_scan(
+ '65000000-0000-4000-8000-000000000001',
+ '63000000-0000-4000-8000-000000000001',
+ '64000000-0000-4000-8000-000000000001',
+ '00000123456')->>'replayed')::boolean,true,
+ 'previous receipt replays for authorized Staff even after leaving OPEN');
+select throws_ok($test$select public.ingest_attendance_scan(
+ '65000000-0000-4000-8000-000000000008',
+ '63000000-0000-4000-8000-000000000001',
+ '64000000-0000-4000-8000-000000000001',
+ '00000123456')$test$,'55000');
+select is((select count(*)::int from public.attendance_scans
+ where scan_id='65000000-0000-4000-8000-000000000008'),0,
+ 'non-OPEN state rejects new UUID without evidence');
+reset role;
+update public.events set state='OPEN'
+  where id='63000000-0000-4000-8000-000000000001';
+set local role authenticated;
+select set_config('request.jwt.claim.sub','62000000-0000-4000-8000-000000000003',true);
 
 select throws_ok($test$select public.ingest_attendance_scan('65000000-0000-4000-8000-000000000007','63000000-0000-4000-8000-000000000001','64000000-0000-4000-8000-000000000004','00000123456')$test$,'42501');
 select throws_ok($test$select public.ingest_attendance_scan('65000000-0000-4000-8000-000000000007','63000000-0000-4000-8000-000000000001','64000000-0000-4000-8000-000000000099','00000123456')$test$,'42501');
@@ -174,7 +248,7 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub','62000000-0000-4000-8000-000000000002',true);
 
 select throws_ok($test$select public.ingest_attendance_scan('65000000-0000-4000-8000-000000000007','63000000-0000-4000-8000-000000000001','64000000-0000-4000-8000-000000000001','00000123456')$test$,'42501');
-select ok((select count(*)::int from public.attendance_scans where event_id='63000000-0000-4000-8000-000000000001')=5,
+select ok((select count(*)::int from public.attendance_scans where event_id='63000000-0000-4000-8000-000000000001')=6,
   'Leader may audit organization receipts but cannot submit Staff scans');
 
 reset role;
@@ -218,8 +292,8 @@ select is((select count(*)::int from public.attendance_scans
   where event_id='63000000-0000-4000-8000-000000000001'),0,
   'revoked Staff loses receipts for the revoked event');
 select is((select count(*)::int from public.attendance_scans
-  where event_id='63000000-0000-4000-8000-000000000003'),1,
-  'Staff retains receipt visibility only for separately assigned DRAFT event');
+  where event_id='63000000-0000-4000-8000-000000000003'),0,
+  'Staff remains assigned to DRAFT but no online scan receipts were created');
 select is((select count(*)::int from public.events where id='63000000-0000-4000-8000-000000000001'),0,
   'revoked Staff loses event visibility');
 
