@@ -15,9 +15,11 @@ an opaque QR payload as a student number without a separately approved
 credential mapping/decoding rule.
 
 `p_scan_id` is a client-generated UUID, preferably UUIDv4, stable across
-retries. Mobile's existing SQLite `ProvisionalScan.id` already stores such a
-stable UUID. Mobile currently does **not** persist a checkpoint ID or submit
-scans; this contract does not claim Mobile compatibility is complete.
+retries. Mobile M2.5 persists a stable UUID with event, checkpoint, and synthetic
+canonical Student ID before immediate online submission through this RPC.
+This describes implemented client behavior, **not** independent device-level
+Mobile–Backend verification. Offline uploads and decoding of physical HNU ID
+QR payloads remain unapproved and outside this contract.
 
 ## Ingestion RPC
 
