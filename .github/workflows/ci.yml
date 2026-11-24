@@ -45,6 +45,10 @@ jobs:
         env:
           HNU_DASH_ISOLATED_TEST_DB: '1'
         run: python3 scripts/test_attendance_finalization_races.py
+      - name: Verify offline preparation and upload races
+        env:
+          HNU_DASH_ISOLATED_TEST_DB: '1'
+        run: python3 scripts/test_offline_evidence_races.py
       - name: Stop local Supabase
         if: always()
         run: npm run supabase -- stop
