@@ -1,6 +1,6 @@
 begin;
 -- M3.2A synthetic fixtures; all changes rolled back.
-select plan(104);
+select plan(118);
 
 insert into auth.users(id,instance_id,aud,role,email,email_confirmed_at,created_at,updated_at)
 values
@@ -238,5 +238,39 @@ select throws_ok($test$update public.attendance_scans set outcome='rejected' whe
 select throws_ok($test$delete from public.attendance_scans where event_id='93000000-0000-4000-8000-000000000001'$test$,'42501');
 select is((select count(*)::int from public.attendance_scans),12,'all immutable receipts survive finalization');
 select is((select count(*)::int from public.attendance_records where event_id='93000000-0000-4000-8000-000000000001'),600,'records remain unique after retries');
+-- Exercise an exact two-checkpoint event and separate prerequisite failures.
+select set_config('request.jwt.claim.sub','92000000-0000-4000-8000-000000000001',true);
+insert into public.events(id,organization_id,created_by,title,starts_at,ends_at) values
+ ('93000000-0000-4000-8000-000000000008','91000000-0000-4000-8000-000000000001','92000000-0000-4000-8000-000000000001','Two Checkpoint Event',now()-interval '3 hours',now()+interval '3 hours'),
+ ('93000000-0000-4000-8000-000000000009','91000000-0000-4000-8000-000000000001','92000000-0000-4000-8000-000000000001','Draft Event',now()-interval '3 hours',now()+interval '3 hours');
+insert into public.event_checkpoints(id,event_id,label,direction,opens_at,closes_at) values
+ ('94000000-0000-4000-8000-000000000011','93000000-0000-4000-8000-000000000008','First IN','IN',now()-interval '2 hours',now()-interval '1 hour'),
+ ('94000000-0000-4000-8000-000000000012','93000000-0000-4000-8000-000000000008','Second OUT','OUT',now()-interval '2 hours',now()-interval '1 hour');
+insert into public.event_roster(event_id,student_id,student_name,program_code,year_level,frozen_at)
+values ('93000000-0000-4000-8000-000000000007','00000000001','Synthetic no-checkpoint fixture','BSIT',1,now());
+update public.events set roster_frozen_at=now() where id='93000000-0000-4000-8000-000000000007';
+set local role authenticated;
+select throws_ok($test$select public.close_event('93000000-0000-4000-8000-000000000009')$test$,'55000');
+select throws_ok($test$select public.finalize_event('93000000-0000-4000-8000-000000000009')$test$,'55000');
+select throws_ok($test$select public.close_event('93000000-0000-4000-8000-000000000007')$test$,'22023');
+select is(public.freeze_event_roster('93000000-0000-4000-8000-000000000008'),600,'two checkpoint event freezes');
+select is((select event_state from public.open_event('93000000-0000-4000-8000-000000000008')),'OPEN','two checkpoint event opens');
+reset role;
+insert into public.attendance_scans(scan_id,event_id,checkpoint_id,student_id,submitted_by,received_at,outcome) values
+ ('95000000-0000-4000-8000-000000000013','93000000-0000-4000-8000-000000000008','94000000-0000-4000-8000-000000000011','00000000001','92000000-0000-4000-8000-000000000004',now()-interval '90 minutes','accepted'),
+ ('95000000-0000-4000-8000-000000000014','93000000-0000-4000-8000-000000000008','94000000-0000-4000-8000-000000000012','00000000001','92000000-0000-4000-8000-000000000004',now()-interval '90 minutes','accepted'),
+ ('95000000-0000-4000-8000-000000000015','93000000-0000-4000-8000-000000000008','94000000-0000-4000-8000-000000000012','00000000002','92000000-0000-4000-8000-000000000004',now()-interval '90 minutes','accepted');
+set local role authenticated;
+select is(public.close_event('93000000-0000-4000-8000-000000000008')->>'event_state','SYNCING','two checkpoint event closes');
+select is(public.finalize_event('93000000-0000-4000-8000-000000000008')->>'record_count','600','two checkpoint event finalizes');
+select is((select status from public.get_event_finalized_results('93000000-0000-4000-8000-000000000008') where student_id='00000000001'),'PRESENT','both checkpoints accepted');
+select is((select status from public.get_event_finalized_results('93000000-0000-4000-8000-000000000008') where student_id='00000000002'),'INCOMPLETE','OUT alone is incomplete for two required checkpoints');
+select is((select status from public.get_event_finalized_results('93000000-0000-4000-8000-000000000008') where student_id='00000000003'),'ABSENT','no accepted checkpoints');
+select is((select required_checkpoint_count from public.get_event_finalized_results('93000000-0000-4000-8000-000000000008') where student_id='00000000001'),2,'two configured checkpoints required');
+reset role;
+select throws_ok($test$insert into public.attendance_records values ('93000000-0000-4000-8000-000000000008','00000000001','PRESENT',2,2)$test$,'23505');
+select throws_ok($test$insert into public.attendance_records values ('93000000-0000-4000-8000-000000000008','00000000999','ABSENT',2,0)$test$,'23503');
+select throws_ok($test$insert into public.attendance_records values ('93000000-0000-4000-8000-000000000009','00000000001','PRESENT',2,0)$test$,'23514');
+
 select * from finish();
 rollback;
