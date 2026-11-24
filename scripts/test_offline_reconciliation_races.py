@@ -21,11 +21,11 @@ ORG = "e1000000-0000-4000-8000-000000000001"
 STAFF = "e2000000-0000-4000-8000-000000000001"
 ADMIN = "e2000000-0000-4000-8000-000000000002"
 STUDENT = "00000994001"
-EVENT = [f"e3000000-0000-4000-8000-{i:012d}" for i in range(1, 8)]
-CP = [f"e4000000-0000-4000-8000-{i:012d}" for i in range(1, 8)]
-ASSIGN = [f"e5000000-0000-4000-8000-{i:012d}" for i in range(1, 8)]
-REQ = [f"e6000000-0000-4000-8000-{i:012d}" for i in range(1, 8)]
-PREP = [f"e7000000-0000-4000-8000-{i:012d}" for i in range(1, 8)]
+EVENT = [f"e3000000-0000-4000-8000-{i:012d}" for i in range(1, 10)]
+CP = [f"e4000000-0000-4000-8000-{i:012d}" for i in range(1, 10)]
+ASSIGN = [f"e5000000-0000-4000-8000-{i:012d}" for i in range(1, 10)]
+REQ = [f"e6000000-0000-4000-8000-{i:012d}" for i in range(1, 10)]
+PREP = [f"e7000000-0000-4000-8000-{i:012d}" for i in range(1, 10)]
 CAP = [f"e8000000-0000-4000-8000-{i:012d}" for i in range(1, 10)]
 
 def sql(statement):
@@ -223,8 +223,9 @@ if c["receipt_outcome"] != "duplicate":
     raise AssertionError("Second capture did not preserve accepted-slot uniqueness")
 print("PASS: review retries and conflicts preserve one accepted slot")
 
-# Confirmation waits for final review; finalization waits for confirmation.
-# Before confirmation, an older client cannot publish.
+# Confirmation waits for the last review; an older client cannot publish
+# before confirmation. The next independent event exercises the actual first
+# confirmation versus finalization transaction (not merely a confirmation replay).
 sql(f"""begin; set local role authenticated;
 select set_config('request.jwt.claim.sub','{STAFF}',true);
 {complete(5, 1)} commit;""")
@@ -233,12 +234,37 @@ result(first, "Offline-enabled events require reconciliation before finalization
 a, b = race("reconcile-review-confirm", ADMIN, review(5, CAP[4]), ADMIN, confirm(5))
 if a["receipt_outcome"] != "accepted" or b["replayed"]:
     raise AssertionError("Confirmation missed committed review")
-# Use a separate real transaction that first acquires the confirmation replay
-# lock, then holds it while finalization waits. Confirmation cannot be undone.
-a, b = race("reconcile-confirm-finalize", ADMIN, confirm(5), ADMIN, finalize(5))
-if not a["replayed"] or b["record_count"] != 1:
-    raise AssertionError("Finalization did not observe committed reconciliation")
+
+sql("begin; select set_config('request.jwt.claim.sub','" + ADMIN + "',true);" +
+    fixture(7, "now()-interval '25 hours'") +
+    f"select public.close_event('{EVENT[7]}'); {seal(7)} commit;")
+sql(f"""begin; set local role authenticated;
+select set_config('request.jwt.claim.sub','{STAFF}',true);
+{complete(7, 0)} commit;""")
+a, b = race("reconcile-confirm-finalize", ADMIN, confirm(7), ADMIN, finalize(7))
+if a["replayed"] or b["record_count"] != 1:
+    raise AssertionError("Finalization did not observe first committed reconciliation")
+f = result(session("reconcile-finalize-confirmed", ADMIN, finalize(5)))
+if f["record_count"] != 1:
+    raise AssertionError("Reviewed event not finalized")
 print("PASS: review/confirmation/finalization serialize; old client denied before confirmation")
+
+# Completion locks the exact live assignment. Revocation waits for a valid
+# declaration; a declaration queued behind revocation must fail.
+def revoke(i):
+    return (f"select jsonb_build_object('assignment_id',"
+            f"public.revoke_event_staff('{ASSIGN[i]}'));")
+
+a, b = race("reconcile-complete-revoke", STAFF, complete(7, 0), ADMIN, revoke(7))
+if not a["replayed"] or b["assignment_id"] != ASSIGN[7]:
+    raise AssertionError("Authorized completion replay did not serialize with revoke")
+sql("begin; select set_config('request.jwt.claim.sub','" + ADMIN + "',true);" +
+    fixture(8, "now()-interval '1 hour'") + "commit;")
+race("reconcile-revoke-complete", ADMIN, revoke(8), STAFF, complete(8, 0),
+     "Offline evidence not permitted")
+if sql(f"select count(*) from public.offline_preparation_accounting where preparation_id='{PREP[8]}';") != "0":
+    raise AssertionError("Revoked preparation was accounted by Staff")
+print("PASS: exact-assignment completion and revocation serialize; revoked declaration denied")
 
 # Cutoff boundary with actual server clock. A valid pre-cutoff upload holds the
 # event lock across expiry; sealing must wait, then a new UUID must fail.
