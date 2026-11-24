@@ -115,7 +115,7 @@ select set_config('request.jwt.claim.sub','{ADMIN}',true);
 insert into public.event_checkpoints(id,event_id,label,direction,opens_at,closes_at)
 values ('{CP}','{EVENT}','IN','IN',now()-interval '30 minutes',clock_timestamp()+interval '20 seconds'),
 ('{CP2}','{EVENT2}','IN','IN',now()-interval '30 minutes',now()-interval '10 minutes');
-insert into public.event_roster(event_id,student_id,student_name,program_code,year_level)
+insert into public.event_roster(event_id,student_id,student_name,program_code,year_level,frozen_at)
 select e.id,'{STUDENT}','Synthetic Finalization Race','BSIT',1,now()
 from public.events e where e.id in ('{EVENT}','{EVENT2}');
 update public.events set roster_frozen_at=now(),state='OPEN',opened_at=now()
