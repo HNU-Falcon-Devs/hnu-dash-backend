@@ -1,0 +1,70 @@
+name: M3.2C temporary integration QA
+on:
+  push:
+    branches: [qa/m3p2c-online-lifecycle]
+permissions:
+  contents: read
+concurrency:
+  group: m32c-temporary-qa
+  cancel-in-progress: false
+jobs:
+  online-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: true
+      NEXT_TELEMETRY_DISABLED: 1
+      HNU_DASH_ISOLATED_TEST_DB: '1'
+    steps:
+      - name: Checkout QA harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout accepted Web
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: HNU-Falcon-Devs/hnu-dash-web
+          ref: ada5393bf881a38ad9c5b92a5fb65b3020cdabc4
+          path: qa-web
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Verify revisions and runner isolation
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_REF" = refs/heads/qa/m3p2c-online-lifecycle
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C qa-web rev-parse HEAD)" = ada5393bf881a38ad9c5b92a5fb65b3020cdabc4
+          git diff --exit-code b410110cff10cf0a3d9aa64ebc8f019d98d7717b HEAD -- supabase package.json package-lock.json .github/workflows/ci.yml
+          git merge-base --is-ancestor b410110cff10cf0a3d9aa64ebc8f019d98d7717b HEAD
+          test -z "$(docker ps -aq --filter name=supabase_)"
+          printf 'QA HEAD=%s; Web=%s; Backend=b410110cff10cf0a3d9aa64ebc8f019d98d7717b\n' "$GITHUB_SHA" "$(git -C qa-web rev-parse HEAD)"
+      - name: Install pinned dependencies
+        run: |
+          npm ci
+          npm --prefix qa-web ci
+          mkdir -p "$RUNNER_TEMP/m32c-tools"
+          npm --prefix "$RUNNER_TEMP/m32c-tools" install --no-save --no-package-lock playwright@1.56.1
+          "$RUNNER_TEMP/m32c-tools/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Start disposable Supabase
+        run: |
+          touch "$RUNNER_TEMP/m32c-stack-owned"
+          ./node_modules/.bin/supabase start > "$RUNNER_TEMP/m32c-start.log" 2>&1
+          ./node_modules/.bin/supabase status -o json > "$RUNNER_TEMP/m32c-local.json" 2>/dev/null
+          chmod 600 "$RUNNER_TEMP/m32c-local.json"
+          test "$(docker ps --filter name=^/supabase_db_hnu-dash-backend$ --format '{{.Names}}')" = supabase_db_hnu-dash-backend
+          echo 'Disposable Supabase started; credentials withheld.'
+      - name: Execute actual browser and database journey
+        run: node scripts/qa-m32c.mjs
+      - name: Stop disposable Supabase
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/m32c-stack-owned"; then
+            ./node_modules/.bin/supabase stop --no-backup > "$RUNNER_TEMP/m32c-stop.log" 2>&1
+            test -z "$(docker ps --filter name=supabase_ --format '{{.Names}}')"
+            echo 'Disposable stack stopped.'
+          fi
+          rm -f "$RUNNER_TEMP/m32c-local.json" "$RUNNER_TEMP/m32c-start.log" "$RUNNER_TEMP/m32c-stop.log"
