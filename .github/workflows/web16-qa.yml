@@ -1,0 +1,72 @@
+name: Web #16 temporary browser QA
+on:
+  push:
+    branches: [qa/web16-csv-browser]
+permissions:
+  contents: read
+concurrency:
+  group: web16-temporary-qa
+  cancel-in-progress: false
+jobs:
+  csv-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CI: true
+      NEXT_TELEMETRY_DISABLED: 1
+      HNU_DASH_ISOLATED_TEST_DB: '1'
+    steps:
+      - name: Checkout QA harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Checkout pinned Web
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: HNU-Falcon-Devs/hnu-dash-web
+          ref: ab122261786bb38a98269679197c5d0f6978cabb
+          path: qa-web
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Verify revisions and runner isolation
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_REF" = refs/heads/qa/web16-csv-browser
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C qa-web rev-parse HEAD)" = ab122261786bb38a98269679197c5d0f6978cabb
+          git diff --exit-code 43dcb7febd5cdc1b50bb249487f92f1fe66fa21d HEAD -- supabase package.json package-lock.json .github/workflows/ci.yml
+          test "$(git diff --name-only 43dcb7febd5cdc1b50bb249487f92f1fe66fa21d HEAD | sort)" = "$(printf '%s\n' .github/workflows/web16-qa.yml scripts/qa-web16.mjs | sort)"
+          git merge-base --is-ancestor 43dcb7febd5cdc1b50bb249487f92f1fe66fa21d HEAD
+          test -z "$(docker ps -aq --filter name=supabase_)"
+          printf 'QA HEAD=%s; Web=%s; Backend=43dcb7febd5cdc1b50bb249487f92f1fe66fa21d\n' "$GITHUB_SHA" "$(git -C qa-web rev-parse HEAD)"
+      - name: Install pinned dependencies
+        run: |
+          npm ci
+          npm --prefix qa-web ci
+          mkdir -p "$RUNNER_TEMP/web16-tools"
+          npm --prefix "$RUNNER_TEMP/web16-tools" install --no-save --no-package-lock playwright@1.56.1
+          "$RUNNER_TEMP/web16-tools/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Start disposable Supabase
+        run: |
+          touch "$RUNNER_TEMP/web16-stack-owned"
+          ./node_modules/.bin/supabase start > "$RUNNER_TEMP/web16-start.log" 2>&1
+          ./node_modules/.bin/supabase status -o json > "$RUNNER_TEMP/web16-local.json" 2>/dev/null
+          chmod 600 "$RUNNER_TEMP/web16-local.json"
+          test "$(docker ps --filter name=^/supabase_db_hnu-dash-backend$ --format '{{.Names}}')" = supabase_db_hnu-dash-backend
+          echo 'Disposable Supabase started; credentials withheld.'
+      - name: Execute CSV browser and database journey
+        run: node scripts/qa-web16.mjs
+      - name: Stop disposable Supabase
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/web16-stack-owned"; then
+            ./node_modules/.bin/supabase stop --no-backup > "$RUNNER_TEMP/web16-stop.log" 2>&1
+            test -z "$(docker ps --filter name=supabase_ --format '{{.Names}}')"
+            echo 'Disposable stack stopped.'
+          fi
+          rm -f "$RUNNER_TEMP/web16-local.json" "$RUNNER_TEMP/web16-start.log" "$RUNNER_TEMP/web16-stop.log"
