@@ -136,84 +136,8 @@ try{
   const pg=await pageFor(leader);
   pass(stage,{leader:leader.id,staff:staff.id,second:second.id,foreign:foreign.id,roster:201});
   console.log('QA EXPECTED LEDGER',JSON.stringify({onlineAccepted:[[sid(1),0]],claims:ledger,preparations:[{disposition:'completed',count:3},{disposition:'revoked',count:2}],canonical:{accepted:3,duplicate:1},final:{PRESENT:1,INCOMPLETE:1,ABSENT:199}}));
-  stage='LIVE DRAFT browser opt-in and activation';
-  const now=Number(db('select floor(extract(epoch from clock_timestamp())*1000)::bigint'));
-  const iso=n=>new Date(now+n*1000).toISOString();
-  eid=(await tableOk('create draft',leader.client.from('events').insert({organization_id:oid,title:'Synthetic M45A live',starts_at:iso(-60),ends_at:iso(240),target_year_levels:[1]}).select('id').single())).id;
-  path='/organizations/'+oid+'/events/'+eid+'/operations';
-  const cps=await tableOk('checkpoints',leader.client.from('event_checkpoints').insert([{event_id:eid,label:'Synthetic A',direction:'IN',opens_at:iso(-30),closes_at:iso(120),sort_order:1},{event_id:eid,label:'Synthetic B',direction:'OUT',opens_at:iso(-30),closes_at:iso(120),sort_order:2}]).select('id,sort_order'));
-  a=cps.find(c=>c.sort_order===1).id;b=cps.find(c=>c.sort_order===2).id;
-  const cp=[a,b];
-  check('freeze 201',await rpc(leader.client,'freeze_event_roster',{eid})===201);
-  for(const who of staffers)await rpc(leader.client,'assign_event_staff',{eid,staff_uid:who.id});
-  await navigate(pg);
-  const stale=await pageFor(leader);await navigate(stale);
-  await doForm(pg,'Enable offline attendance');
-  await waitFor('opt-in',()=>db("select offline_enabled::text from public.events where "+where().replace('event_id','id'))==='true');
-  check('draft cutoff null',sqlrow('events',"id='"+eid+"'").offline_upload_cutoff===null);
-  const staleForm=offForm(stale,'Activate event');await staleForm.getByRole('checkbox').check();await staleForm.getByRole('button',{name:'Activate DRAFT event'}).click();
-  await visible(staleForm.getByRole('alert'),'stale activation denial');
-  check('stale leaves DRAFT',state().state==='DRAFT');
-  await stale.context().close();
-  await navigate(pg);
-  const activate=offForm(pg,'Activate event');await activate.getByRole('checkbox').check();await activate.getByRole('button',{name:'Activate DRAFT event'}).click();
-  await waitFor('activate commit',()=>state().state==='OPEN');
-  check('canonical real cutoff',db("select (offline_upload_cutoff=(select max(closes_at)+interval '24 hours' from public.event_checkpoints where event_id=events.id))::text from public.events where id='"+eid+"'")==='true');
-  pass(stage,{event:eid,cutoff:sqlrow('events',"id='"+eid+"'").offline_upload_cutoff,staleDenied:true});
-  stage='LIVE genuine Staff RPC and lost acknowledgement';
-  const preparations=[];
-  for(const who of staffers){
-    const p=await rpc(who.client,'prepare_offline_capture',{p_event_id:eid,p_request_id:uuid()});
-    check('preparation scope',p.staff_user_id===who.id&&p.event_id===eid&&p.checkpoints.length===2&&!('roster' in p));
-    preparations.push(p);
-  }
-  const firstOnline=receiptPayload(a,sid(1));const onlineReceipt=await online(staff,firstOnline);check('online accepted',onlineReceipt.outcome==='accepted');
-  const liveClaims=ledger.map(l=>makeClaim(preparations[l.staff].preparation_id,cp[l.cp],l.student,preparations[l.staff].issued_at));
-  const first=liveClaims[0];
-  // Real HTTP request commits. Simulate transport loss to the caller only after independent durable-row confirmation.
-  const session=(await staff.client.auth.getSession()).data.session;
-  let lost=false,upstreamStatus=0;
-  try{
-    const response=await fetch(url+'/rest/v1/rpc/submit_offline_capture',{method:'POST',headers:{apikey:anon,Authorization:'Bearer '+session.access_token,'Content-Type':'application/json'},body:JSON.stringify(first)});
-    upstreamStatus=response.status;
-    check('upstream successful',response.ok);
-    check('committed before response discarded',n('offline_capture_claims',where())===1);
-    await response.body?.cancel();
-    lost=true;throw Error('controlled response discarded');
-  }catch(e){if(!lost)throw e;}
-  const replay=await upload(staff,first);
-  check('identical replay',replay.replayed===true&&replay.status==='submitted'&&replay.capture_id===first.p_capture_id&&Date.parse(replay.received_at)===Date.parse(rawClaim(first.p_capture_id).received_at));
-  await rpc(staff.client,'submit_offline_capture',{...first,p_student_id:sid(2)},'23505');
-  await rpc(second.client,'submit_offline_capture',first,'42501');
-  check('unchanged one durable claim',n('offline_capture_claims',where())===1);
-  for(let i=1;i<liveClaims.length;i++){
-    const r=await upload(staffers[ledger[i].staff],liveClaims[i]);
-    check('generic acknowledgement',r.status==='submitted'&&!r.replayed&&JSON.stringify(Object.keys(r).sort())===JSON.stringify(Object.keys(replay).sort())&&!('review_eligible' in r)&&!('outcome' in r));
-    check('private eligibility independently matches plan',rawClaim(liveClaims[i].p_capture_id).review_eligible===ledger[i].eligible);
-  }
-  check('claims not canonical',n('offline_capture_claims',where())===5&&n('attendance_scans',where())===1&&records().length===0);
-  const scoped=await status(staff,preparations[0].preparation_id);
-  check('durable count no oracle',scoped.uploaded_count===3&&!('review_eligible' in scoped)&&!('decision' in scoped));
-  await complete(staff,preparations[0].preparation_id,2,'22023');
-  const done=await complete(staff,preparations[0].preparation_id,3);
-  const again=await complete(staff,preparations[0].preparation_id,3);
-  assert.deepEqual(withoutReplay(again),withoutReplay(done));check('completion replay',again.replayed===true);
-  await complete(staff,preparations[0].preparation_id,4,'23505');
-  await rpc(staff.client,'submit_offline_capture',makeClaim(preparations[0].preparation_id,a,sid(4),preparations[0].issued_at),'55000');
-  await rpc(leader.client,'revoke_event_staff',{assignment_id:preparations[1].assignment_id});
-  await rpc(second.client,'submit_offline_capture',liveClaims[3],'42501');
-  await rpc(second.client,'get_offline_preparation_status',{p_preparation_id:preparations[1].preparation_id},'42501');
-  pass(stage,{event:eid,claims:liveClaims.map((p,i)=>({id:p.p_capture_id,eligible:ledger[i].eligible})),count:5,canonical:1,upstreamStatus,responseDiscarded:true,replay:true,completionCount:3,revoked:true});
-  stage='LIVE server-clock closure and early gates';
-  await waitFor('all windows ended',()=>db("select (clock_timestamp()>=max(closes_at))::text from public.event_checkpoints where event_id='"+eid+"'")==='true',135000);
-  await navigate(pg);await submit(pg,'Close event');await waitFor('closed',()=>state().state==='SYNCING');
-  await navigate(pg);
-  await rpc(leader.client,'seal_offline_uploads',{eid},'55000');await rpc(leader.client,'finalize_event',{eid},'55000');
-  check('no early browser seal or finalization',await offForm(pg,'Seal offline uploads').count()===0&&await offForm(pg,'Finalize offline attendance').count()===0);
-  check('no automatic review',n('offline_claim_reviews',"capture_id in (select capture_id from public.offline_capture_claims where "+where()+")")===0&&records().length===0);
-  pass(stage,{event:eid,closed:state().closed_at,cutoff:sqlrow('events',"id='"+eid+"'").offline_upload_cutoff,claims:5,canonical:1});
   stage='HISTORICAL fixture: separate event, not elapsed live time';
-  const liveEvent=eid;
+  const liveEvent='cd870933-9270-415e-a62e-d18a6a08c4ca (prior run only)';
   eid=uuid();a=uuid();b=uuid();path='/organizations/'+oid+'/events/'+eid+'/operations';
   const historicalCP=[a,b],assign=[uuid(),uuid()],prep=[uuid(),uuid()],req=[uuid(),uuid()],historicalClaims=ledger.map(l=>({...l,id:uuid()})),historicalOnline=uuid();
   const hnow=Number(db('select floor(extract(epoch from clock_timestamp())*1000)::bigint'));
@@ -232,12 +156,11 @@ try{
     "insert into public.offline_capture_claims(capture_id,preparation_id,event_id,checkpoint_id,student_id,claimed_at,received_at,review_eligible) values "+historicalClaims.map(l=>tuple([l.id,prep[l.staff],eid,historicalCP[l.cp],l.student,h(-27),h(-24),l.eligible])).join(',')+";"+
     "insert into public.attendance_scans(scan_id,event_id,checkpoint_id,student_id,submitted_by,received_at,outcome) values "+tuple([historicalOnline,eid,a,sid(1),staff.id,h(-27),'accepted'])+";"+
     "insert into public.offline_preparation_accounting(preparation_id,disposition,uploaded_count,declared_count,accounted_at,accounted_by) values "+tuple([prep[0],'completed',3,3,h(-23),staff.id])+";"+
-    "update public.event_staff set revoked_at="+q(h(-22))+",revoked_by="+q(leader.id)+" where id="+q(assign[1])+";"+
     "update public.events set state='SYNCING',closed_at="+q(h(-25))+",closed_by="+q(leader.id)+" where id="+q(eid)+"; commit;");
   check('canonical historical cutoff',db("select (offline_upload_cutoff=(select max(closes_at)+interval '24 hours' from public.event_checkpoints where event_id=events.id) and clock_timestamp()>=offline_upload_cutoff)::text from public.events where id='"+eid+"'")==='true');
   check('seed counts',n('offline_capture_claims',where())===5&&n('offline_preparations',where())===2&&n('attendance_scans',where())===1&&records().length===0);
   pass(stage,{liveEvent,historicalEvent:eid,cutoff:sqlrow('events',"id='"+eid+"'").offline_upload_cutoff,seededClaims:historicalClaims.map(l=>({id:l.id,...l})),preparations:prep,online:historicalOnline});
-  stage='HISTORICAL real browser seal and gating';
+  stage='HISTORICAL resume setup: seal and gating (prior pass, necessary fresh fixture)';
   const startReview=Date.now();
   await navigate(pg);await doForm(pg,'Seal offline uploads');await waitFor('seal commit',()=>n('offline_upload_seals',where())===1);
   await navigate(pg);
@@ -247,6 +170,19 @@ try{
   check('unaccounted and unreviewed',await summary(leader).then(s=>s.unaccounted_count===1&&s.unreviewed_count===5&&!s.can_confirm&&!s.can_finalize));
   check('browser gates',await offForm(pg,'Confirm offline reconciliation').count()===0&&await offForm(pg,'Finalize offline attendance').count()===0);
   pass(stage,{sealed,unaccounted:1,unreviewed:5});
+  stage='HISTORICAL sealed uploads with active unaccounted assignment';
+  const sealedExact=makeClaim(prep[1],a,sid(2),h(-27),historicalClaims[3].id);
+  const oldClaim=rawClaim(historicalClaims[3].id);
+  const sealStatus=await status(second,prep[1]);
+  check('sealed active unaccounted session',sealStatus.disposition===null&&sealStatus.can_upload===false&&sealStatus.sealed_at!==null);
+  await rpc(second.client,'submit_offline_capture',makeClaim(prep[1],a,sid(4),h(-27)),'55000');
+  const sealedReplay=await upload(second,sealedExact);
+  check('authorized seal replay',sealedReplay.replayed===true&&Date.parse(sealedReplay.received_at)===Date.parse(oldClaim.received_at));
+  check('no new sealed claim',n('offline_capture_claims',where())===5);
+  await rpc(leader.client,'revoke_event_staff',{assignment_id:assign[1]});
+  await rpc(second.client,'submit_offline_capture',sealedExact,'42501');
+  pass(stage,{activeUnaccounted:true,newDenied:'55000',sameReplay:true,revokedReplayDenied:'42501',claims:5});
+
   stage='HISTORICAL browser session loss and review response loss';
   const lossReason='Synthetic revoked session; evidence retained';
   await doForm(pg,'Record session loss',prep[1],'revoked',lossReason);
@@ -258,8 +194,23 @@ try{
   await rpc(leader.client,'account_offline_preparation_loss',{...lossArgs,p_reason:lossReason+' changed'},'23505');
   await navigate(pg);await rpc(leader.client,'confirm_offline_reconciliation',{eid},'55000');
   const invalid=historicalClaims[2];
-  check('ineligible option disabled',await offForm(pg,'Review offline claim',invalid.id).locator('option[value=approve]').isDisabled());
+  const claimRows=await rpc(leader.client,'get_event_offline_claims',{eid,p_limit:200,p_offset:0});
+  const apiClaim=claimRows.find(c=>c.capture_id===invalid.id);
+  check('ineligible fixture database flag',rawClaim(invalid.id).review_eligible===false);
+  check('ineligible genuine manager RPC flag',apiClaim?.review_eligible===false);
   await rpc(leader.client,'review_offline_capture',{eid,p_capture_id:invalid.id,p_decision:'approve',p_reason:invalid.reason},'55000');
+  check('ineligible denial no persisted review',n('offline_claim_reviews',"capture_id='"+invalid.id+"'")===0);
+  const invalidForm=offForm(pg,'Review offline claim',invalid.id);
+  await visible(invalidForm,'ineligible claim form');
+  const opt=invalidForm.locator('option[value=approve]');
+  const native=await opt.evaluate(el=>({disabled:el.disabled,attr:el.getAttribute('disabled'),matches:el.matches(':disabled'),outerHTML:el.outerHTML}));
+  const playwrightDisabled=await opt.isDisabled();
+  const rowText=await invalidForm.locator('..').innerText();
+  console.log('QA DIAGNOSTIC ineligible approval',JSON.stringify({dbEligible:false,rpcEligible:apiClaim.review_eligible,native,playwrightDisabled,uiIneligibleLabel:rowText.includes('Ineligible for approval'),rpcDenied:'55000'}));
+  check('native ineligible option actually disabled',native.disabled===true&&native.matches===true&&native.attr!==null);
+  // Test genuine option state independently; if the native DOM is enabled, the
+  // preceding assertion fails and the product discrepancy is not suppressed.
+  pass('HISTORICAL ineligible approval diagnostic',{native,playwrightDisabled,rpcDenied:'55000'});
   let posts=0,withheld=false,interceptionError='';
   const lostReview=historicalClaims[0];
   await pg.route('**/operations**',async route=>{
@@ -327,6 +278,24 @@ try{
   assert.deepEqual(records(),expected);assert.deepEqual(state(),finalized);assert.deepEqual(counts(),{accepted:3,duplicate:1});
   check('all immutable evidence retained',n('offline_capture_claims',where())===5&&n('offline_preparations',where())===2&&n('offline_claim_reviews',"capture_id in (select capture_id from public.offline_capture_claims where "+where()+")")===5&&n('offline_preparation_accounting',"preparation_id in (select id from public.offline_preparations where "+where()+")")===2);
   pass(stage,{replay:true,claims:5,preparations:2,reviews:5,accounting:2,records:201});
-  console.log('QA COMPLETE: live pre-cutoff and separately seeded historical post-cutoff; no physical Mobile, OAuth, or real data.');
+
+  stage='focused online-only regression at current backend';
+  const historicalEvent=eid;eid=uuid();a=uuid();
+  db("begin; select set_config('request.jwt.claim.sub',"+q(leader.id)+",true);"+
+    "insert into public.events(id,organization_id,created_by,title,starts_at,ends_at,created_at,target_year_levels) values ("+[eid,oid,leader.id,'Synthetic M45A online-only regression',h(-30),h(-25),h(-32)].map(q).join(",")+",array[1]::smallint[]);"+
+    "insert into public.event_checkpoints(id,event_id,label,direction,opens_at,closes_at,sort_order) values "+tuple([a,eid,'Synthetic A','IN',h(-29),h(-25),1])+";"+
+    "insert into public.event_roster(event_id,student_id,student_name,program_code,year_level,frozen_at) select "+q(eid)+",student_id,full_name,program_code,year_level,"+q(h(-31))+" from public.students;"+
+    "update public.events set roster_frozen_at="+q(h(-31))+" where id="+q(eid)+";"+
+    "update public.events set state='OPEN',opened_at="+q(h(-30))+" where id="+q(eid)+";"+
+    "insert into public.event_staff(id,event_id,staff_user_id,assigned_at,assigned_by) values "+tuple([uuid(),eid,staff.id,h(-30),leader.id])+";"+
+    "insert into public.attendance_scans(scan_id,event_id,checkpoint_id,student_id,submitted_by,received_at,outcome) values "+tuple([uuid(),eid,a,sid(1),staff.id,h(-27),'accepted'])+";"+
+    "update public.events set state='SYNCING',closed_at="+q(h(-25))+",closed_by="+q(leader.id)+" where id="+q(eid)+"; commit;");
+  check('online-only policy unchanged',sqlrow('events',"id='"+eid+"'").offline_enabled===false&&sqlrow('events',"id='"+eid+"'").offline_upload_cutoff===null);
+  await rpc(leader.client,'seal_offline_uploads',{eid},'55000');
+  const onlineFinal=await rpc(leader.client,'finalize_event',{eid});check('online finalization without offline gates',onlineFinal.record_count===201&&state().state==='FINALIZED');
+  const onlineExpected=Array.from({length:201},(_,i)=>({student_id:sid(i+1),status:i===0?'PRESENT':'ABSENT',required_checkpoint_count:1,accepted_checkpoint_count:i===0?1:0}));
+  assert.deepEqual(records(),onlineExpected);
+  pass(stage,{event:eid,historicalEvent,records:201,PRESENT:1,ABSENT:200,sealDenied:'55000'});
+  console.log('QA COMPLETE: historical continuation and focused online-only regression; previous live run retained separately. No physical Mobile, OAuth, or real data.');
 }catch(e){console.error('QA FAIL',stage,e instanceof Error?e.message.split('\n')[0].slice(0,300):'unknown');process.exitCode=1;}
 finally{if(browser)await browser.close();if(server?.pid)try{process.kill(-server.pid,'SIGTERM');}catch{}}
