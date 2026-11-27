@@ -4,7 +4,6 @@ import json
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
-import subprocess
 import sys
 
 # Reuse the proven isolation gate, psql process/barrier and receipt helpers.
@@ -184,45 +183,26 @@ def count_claims(i):
     return int(sql(f"select count(*) from offline_b1_private.claims_v2 where event_id='{E(i)}';"))
 
 
-def statement_session(label, actor, statement, hold=False):
-    text = f"""begin;
-set application_name='{label}';
-set local role authenticated;
-select set_config('request.jwt.claim.sub','{actor}',true);
-{statement}
-{"select pg_sleep(9);" if hold else ""}
-commit;
-"""
-    p = subprocess.Popen(b1.PSQL, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE, text=True)
-    p.stdin.write(text)
-    p.stdin.close()
-    p.stdin = None
-    return p
-
-
 def deactivation_race():
-    p1 = statement_session("b2-upload-membership-first", STAFF, f"select {upload(9, 9)};", True)
-    p2 = None
+    # Onboarding deliberately uses NOWAIT and returns busy instead of
+    # waiting on an upload's locked membership. Observe that real API
+    # contract, then the opposite ordering with a held deactivation.
+    revision = sql(f"select revision from public.organization_memberships where organization_id='{ORG}' and user_id='{STAFF}';")
+    deactivate = f"public.update_org_member('{ORG}','{STAFF}','staff',false,{revision})"
+    p1 = b1.session("b2-upload-membership-first", STAFF, upload(9, 9), True)
     try:
         b1.barrier("b2-upload-membership-first", False)
-        p2 = statement_session("b2-upload-membership-second", ADMIN, f"""
-update public.organization_memberships set active=false where organization_id='{ORG}' and user_id='{STAFF}';
-select jsonb_build_object('deactivated',true);
-""")
-        b1.barrier("b2-upload-membership-second", True)
+        assert rpc(ADMIN, deactivate)["status"] == "busy"
         assert b1.result(p1)["status"] == "submitted"
-        assert b1.result(p2)["deactivated"]
         assert count_claims(9) == 1
-        result = subprocess.run(b1.PSQL, input=b1.as_actor(STAFF, f"select {upload(9, 9)};"),
-                                text=True, capture_output=True, timeout=60)
-        assert result.returncode and "Offline evidence not permitted" in result.stderr
-        print("b2-upload-membership: observed deactivation contention and denied replay PASS", flush=True)
     finally:
-        for p in (p1, p2):
-            if p is not None and p.poll() is None:
-                p.terminate()
-                p.communicate(timeout=15)
+        if p1.poll() is None:
+            p1.terminate()
+            p1.communicate(timeout=15)
+    a, _ = b1.race("b2-deactivation-replay", ADMIN, deactivate, STAFF, upload(9, 9),
+                   "Offline evidence not permitted")
+    assert a["status"] == "updated" and count_claims(9) == 1
+    print("b2-upload-membership: NOWAIT busy and deactivation-first denied replay PASS", flush=True)
 
 
 def races():
@@ -266,7 +246,7 @@ def races():
     assert sql(f"select count(*) from public.attendance_records where event_id='{E(8)}';") == "1"
     # Membership deactivation runs last so it cannot affect unrelated fixtures.
     deactivation_race()
-    print("B2 ten two-session contention scenarios PASS; disposable synthetic database only", flush=True)
+    print("B2 ten lock-contention scenarios PASS; disposable synthetic database only", flush=True)
 
 
 if __name__ == "__main__":
