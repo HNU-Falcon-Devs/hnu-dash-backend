@@ -43,7 +43,7 @@ are governed by RLS and narrow column privileges.
 | My organizations | `from('organizations').select(...)` | Scoped member or admin |
 | My organization memberships | `from('organization_memberships').select(...)` | Own entries or authorized leader/admin |
 | Create organization | `from('organizations').insert({slug,name})` | Platform admin only |
-| Assign/update org member | `from('organization_memberships').insert({organization_id,user_id,role})`, or update `role,active` | Platform admin only; no user self-promotion |
+| Assign/update org member | See [verified membership onboarding](verified-membership-onboarding.md): `prepare_org_member_assignment`, `assign_verified_org_member`, `update_org_member` | Verified platform admin only; direct client writes retired |
 | Create event | `from('events').insert({organization_id,title,starts_at,ends_at,target_year_levels}).select()` | Leader/admin of organization; starts in DRAFT only |
 | List/get events | `from('events').select(...).eq('organization_id',id)` | Leader/admin in scope, or active assigned Staff for their own events; RLS independent of caller filters |
 | Update draft event | `rpc('update_draft_event',{eid,new_title,new_starts_at,new_ends_at,new_target_year_levels})` | Leader/admin while DRAFT and not frozen |

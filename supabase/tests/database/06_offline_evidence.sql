@@ -1,6 +1,6 @@
 begin;
 -- Disposable synthetic-only M4.1 fixtures, including historical cutoff cases.
-select plan(121);
+select plan(122);
 
 insert into auth.users(id,instance_id,aud,role,email,email_confirmed_at,created_at,updated_at) values
  ('b2000000-0000-4000-8000-000000000001','00000000-0000-0000-0000-000000000000','authenticated','authenticated','m41-synthetic-1@hnu.edu.ph',now(),now(),now()),
@@ -257,7 +257,7 @@ select ok((current_setting('m41.newprep')::jsonb->>'assignment_id')::uuid <> 'b5
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.sub','b2000000-0000-4000-8000-000000000001',true);
-update public.organization_memberships set active=false where organization_id='b1000000-0000-4000-8000-000000000001' and user_id='b2000000-0000-4000-8000-000000000004';
+select is(public.update_org_member('b1000000-0000-4000-8000-000000000001','b2000000-0000-4000-8000-000000000004','staff',false,1)->>'status','updated','admin deactivation through authoritative membership RPC');
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.sub','b2000000-0000-4000-8000-000000000004',true);

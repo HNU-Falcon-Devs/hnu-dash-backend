@@ -123,9 +123,8 @@ select throws_ok($test$insert into public.events(organization_id,title,starts_at
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.sub','21000000-0000-4000-8000-000000000001',true);
-select lives_ok($test$update public.organization_memberships set active=false
- where organization_id='31000000-0000-4000-8000-000000000001' and user_id='21000000-0000-4000-8000-000000000003'$test$,
- 'platform Admin suspends Staff membership');
+select is(public.update_org_member('31000000-0000-4000-8000-000000000001','21000000-0000-4000-8000-000000000003','staff',false,1)->>'status','updated',
+ 'platform Admin suspends Staff membership through authoritative RPC');
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.sub','21000000-0000-4000-8000-000000000003',true);
@@ -139,9 +138,8 @@ select is((select count(*)::int from public.event_staff),0,
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.sub','21000000-0000-4000-8000-000000000001',true);
-select lives_ok($test$update public.organization_memberships set active=true
- where organization_id='31000000-0000-4000-8000-000000000001' and user_id='21000000-0000-4000-8000-000000000003'$test$,
- 'admin restores membership for explicit event-revocation coverage');
+select is(public.update_org_member('31000000-0000-4000-8000-000000000001','21000000-0000-4000-8000-000000000003','staff',true,2)->>'status','updated',
+ 'admin restores verified membership for explicit event-revocation coverage');
 
 reset role;
 set local role authenticated;
