@@ -87,6 +87,9 @@ try{
  check('R03 no seeded key',num('select count(*) from membership_private.signing_keys')===0);
  check('R03 missing key fails closed',!(await rpc(a,'prepare_org_member_assignment',prepare(o,target.email,'staff'))).ok);
  db("insert into membership_private.signing_keys(audience,secret,signing) values('synthetic-onboarding',extensions.gen_random_bytes(32),true)");
+ // Privileged SQL helper boundary; actual authenticated RPC denials tested below.
+ db("begin; select set_config('request.jwt.claim.sub',:'a',true); do $qa$ begin begin perform membership_private.lock_authority(auth.uid(),'f3100000-0000-4000-8000-000000000099'::uuid); raise exception 'expected absent-target failure'; exception when sqlstate 'PZ001' then null; end; end; $qa$; rollback;",{a:a.id});
+ check('C02 missing selected target cannot be substituted after lock',true);
  phase='assignment';
  for(const [who,label] of [[null,'anon'],[ordinary,'ordinary'],[unverified,'unverified admin']]){
    deny(await rpc(who,'prepare_org_member_assignment',prepare(o,target.email,'staff')),'B02 prepare denied '+label);

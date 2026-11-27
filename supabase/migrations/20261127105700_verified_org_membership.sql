@@ -86,10 +86,17 @@ end; $fn$;
 -- Selected rows, not a table-wide Auth lock. Deterministic UUID order.
 create function membership_private.lock_authority(a uuid,t uuid)
 returns void language plpgsql volatile set search_path='' as $fn$
+declare locked_id uuid; actor_locked boolean:=false; target_locked boolean:=t is null or t=a;
 begin
- perform u.id from auth.users u where u.id=a or u.id=t order by u.id for share nowait;
+ -- A later snapshot cannot substitute a row that was absent during locking.
+ for locked_id in select u.id from auth.users u where u.id=a or u.id=t order by u.id for share nowait loop
+   if locked_id=a then actor_locked:=true; end if;
+   if locked_id=t then target_locked:=true; end if;
+ end loop;
+ if not actor_locked then raise exception 'Forbidden' using errcode='42501'; end if;
  perform p.user_id from public.platform_admins p where p.user_id=a for share nowait;
- if auth.uid() is distinct from a or not public.is_platform_admin() then raise exception 'Forbidden' using errcode='42501'; end if;
+ if not found or auth.uid() is distinct from a or not public.is_platform_admin() then raise exception 'Forbidden' using errcode='42501'; end if;
+ if not target_locked then raise exception 'Account unavailable' using errcode='PZ001'; end if;
 end; $fn$;
 -- A VOLATILE helper executes one fresh statement snapshot, counting ALL matches.
 create function membership_private.matches_target(n text,t uuid)
