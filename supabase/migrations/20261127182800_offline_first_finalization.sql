@@ -232,7 +232,7 @@ begin
   end if;
   return new;
 end;
-$;
+$$;
 
 create function public.finalize_event_v2(p_event_id uuid)
 returns jsonb language plpgsql security definer set search_path='' set timezone='UTC'
