@@ -2,6 +2,8 @@
 
 Authority: [Backend #27 approved decisions](https://github.com/HNU-Falcon-Devs/hnu-dash-backend/issues/27#issuecomment-7221596891), [B1 package](https://github.com/HNU-Falcon-Devs/hnu-dash-backend/issues/27#issuecomment-7221610749), [owner authorization](https://github.com/HNU-Falcon-Devs/hnu-dash-backend/issues/27#issuecomment-7223700306). Base: `3a1f3a11a0db1cab2bc0716949fa5a7ab761cae3`.
 
+**Historical B1 foundation boundary.** The [B2 reconciliation contract](offline-first-b2-reconciliation.md) describes the additive successor fixture lifecycle; B1 preparation, closure and extension RPC contracts remain unchanged. Ordinary successor activation remains disabled.
+
 **B1 is inert for ordinary users.** This is the canonical contract for the additive foundation, NOT a usable successor capture or sync contract, pilot policy or deployment approval. Existing M2.3/M3.2A/M4.1/M4.2 contracts remain canonical for v1. No client should select v2, consume these RPCs for operational attendance or migrate a queue to v2 until separately approved B2 and coordinated consumer acceptance.
 
 ## Persisted model
