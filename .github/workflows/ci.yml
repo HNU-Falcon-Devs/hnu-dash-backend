@@ -32,6 +32,14 @@ jobs:
           node scripts/test_verified_membership.mjs upgrade-seed
           npm run supabase -- migration up --local
           node scripts/test_verified_membership.mjs upgrade-check
+      - name: Verify populated legacy attendance survives B1 upgrade
+        env:
+          HNU_DASH_ISOLATED_TEST_DB: '1'
+        run: |
+          npm run supabase -- db reset --version 20261127105700
+          python3 scripts/test_offline_b1.py upgrade-seed
+          npm run supabase -- migration up --local
+          python3 scripts/test_offline_b1.py upgrade-check
       - name: Reset and lint database
         run: |
           npm run supabase -- db reset
@@ -62,6 +70,10 @@ jobs:
         env:
           HNU_DASH_ISOLATED_TEST_DB: '1'
         run: python3 scripts/test_offline_reconciliation_races.py
+      - name: Verify B1 lifecycle and preparation races
+        env:
+          HNU_DASH_ISOLATED_TEST_DB: '1'
+        run: python3 scripts/test_offline_b1.py races
       - name: Verify signed membership intents and concurrency
         env:
           HNU_DASH_ISOLATED_TEST_DB: '1'
