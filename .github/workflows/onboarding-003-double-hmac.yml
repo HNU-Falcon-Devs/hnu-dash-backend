@@ -1,0 +1,58 @@
+name: HNU DASH onboarding 003 double HMAC
+on:
+  push:
+    branches: [qa/onboarding-003-double-hmac]
+permissions:
+  contents: read
+concurrency:
+  group: onboarding-003-double-hmac
+  cancel-in-progress: false
+jobs:
+  prerequisites:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: true
+      HNU_DASH_ISOLATED_TEST_DB: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Verify isolation and unchanged baseline
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_REF" = refs/heads/qa/onboarding-003-double-hmac
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 43dcb7febd5cdc1b50bb249487f92f1fe66fa21d HEAD
+          test "$(git diff --name-only 43dcb7febd5cdc1b50bb249487f92f1fe66fa21d HEAD | sort)" = "$(printf '%s\n' .github/workflows/onboarding-003-double-hmac.yml scripts/qa-onboarding-003-double-hmac.mjs | sort)"
+          test -z "$(docker ps -aq --filter name=supabase_)"
+          printf 'Backend=43dcb7febd5cdc1b50bb249487f92f1fe66fa21d; harness=%s\n' "$GITHUB_SHA"
+      - name: Install pinned dependencies
+        run: npm ci
+      - name: Start disposable Supabase
+        run: |
+          touch "$RUNNER_TEMP/onboarding-003-owned"
+          ./node_modules/.bin/supabase start > "$RUNNER_TEMP/onboarding-003-start.log" 2>&1
+          ./node_modules/.bin/supabase status -o json > "$RUNNER_TEMP/onboarding-003-local.json" 2>/dev/null
+          chmod 600 "$RUNNER_TEMP/onboarding-003-local.json"
+          test "$(docker ps --filter name=^/supabase_db_hnu-dash-backend$ --format '{{.Names}}')" = supabase_db_hnu-dash-backend
+          echo 'Disposable stack started; credentials withheld.'
+      - name: Verify randomized double HMAC
+        run: |
+          node --check scripts/qa-onboarding-003-double-hmac.mjs
+          node scripts/qa-onboarding-003-double-hmac.mjs
+      - name: Stop disposable Supabase
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/onboarding-003-owned"; then
+            ./node_modules/.bin/supabase stop --no-backup > "$RUNNER_TEMP/onboarding-003-stop.log" 2>&1
+            test -z "$(docker ps --filter name=supabase_ --format '{{.Names}}')"
+            echo 'Disposable stack stopped.'
+          fi
+          rm -f "$RUNNER_TEMP/onboarding-003-local.json" "$RUNNER_TEMP/onboarding-003-start.log" "$RUNNER_TEMP/onboarding-003-stop.log"
