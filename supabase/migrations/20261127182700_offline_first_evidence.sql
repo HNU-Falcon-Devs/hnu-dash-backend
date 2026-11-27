@@ -432,7 +432,7 @@ create function public.review_offline_capture_v2(
 returns jsonb language plpgsql security definer set search_path='' set timezone='UTC'
 as $$
 declare ev public.events%rowtype; c offline_b1_private.claims_v2%rowtype;
-  x offline_b1_private.reviews_v2%rowtype; why text:=btrim(p_reason); replay boolean:=false;
+  review_receipt offline_b1_private.reviews_v2%rowtype; why text:=btrim(p_reason); replay boolean:=false;
 begin
   if p_capture_id is null or p_decision is null or p_decision not in ('approve','reject')
     or why is null or length(why) not between 1 and 500 or why !~ '[^[:space:]]'
@@ -444,13 +444,13 @@ begin
     raise exception 'Expected bounded decision and synthetic corroboration for approval' using errcode='22023';
   end if;
   ev:=offline_b1_private.lock_manager_v2(p_event_id,true);
-  select * into c from offline_b1_private.claims_v2 x where x.event_id=ev.id and x.capture_id=p_capture_id;
+  select * into c from offline_b1_private.claims_v2 claim_row where claim_row.event_id=ev.id and claim_row.capture_id=p_capture_id;
   if not found then raise exception 'Capture not permitted' using errcode='42501'; end if;
-  select * into x from offline_b1_private.reviews_v2 a where a.capture_id=c.capture_id;
+  select * into review_receipt from offline_b1_private.reviews_v2 a where a.capture_id=c.capture_id;
   if found then
-    if x.decision is distinct from p_decision or x.reason is distinct from why
-      or x.basis_category is distinct from p_basis_category or x.basis_reference is distinct from p_basis_reference
-      or x.validated_capture_at is distinct from p_validated_capture_at then
+    if review_receipt.decision is distinct from p_decision or review_receipt.reason is distinct from why
+      or review_receipt.basis_category is distinct from p_basis_category or review_receipt.basis_reference is distinct from p_basis_reference
+      or review_receipt.validated_capture_at is distinct from p_validated_capture_at then
       raise exception 'Exception decision conflicts' using errcode='23505';
     end if;
     replay:=true;
@@ -466,9 +466,9 @@ begin
       raise exception 'Adjudication cannot override hard bounds' using errcode='22023';
     end if;
     insert into offline_b1_private.reviews_v2 values(c.capture_id,p_decision,why,p_basis_category,p_basis_reference,
-      p_validated_capture_at,clock_timestamp(),auth.uid()) returning * into x;
+      p_validated_capture_at,clock_timestamp(),auth.uid()) returning * into review_receipt;
   end if;
-  return to_jsonb(x)||jsonb_build_object('policy_version',2,'replayed',replay);
+  return to_jsonb(review_receipt)||jsonb_build_object('policy_version',2,'replayed',replay);
 end;
 $$;
 
