@@ -40,6 +40,14 @@ jobs:
           python3 scripts/test_offline_b1.py upgrade-seed
           npm run supabase -- migration up --local
           python3 scripts/test_offline_b1.py upgrade-check
+      - name: Verify populated v1 and B1 survive B2 upgrade
+        env:
+          HNU_DASH_ISOLATED_TEST_DB: '1'
+        run: |
+          npm run supabase -- db reset --version 20261127165303
+          python3 scripts/test_offline_b2.py upgrade-seed
+          npm run supabase -- migration up --local
+          python3 scripts/test_offline_b2.py upgrade-check
       - name: Reset and lint database
         run: |
           npm run supabase -- db reset
@@ -74,6 +82,10 @@ jobs:
         env:
           HNU_DASH_ISOLATED_TEST_DB: '1'
         run: python3 scripts/test_offline_b1.py races
+      - name: Verify B2 evidence and reconciliation with two sessions
+        env:
+          HNU_DASH_ISOLATED_TEST_DB: '1'
+        run: python3 scripts/test_offline_b2.py races
       - name: Verify signed membership intents and concurrency
         env:
           HNU_DASH_ISOLATED_TEST_DB: '1'

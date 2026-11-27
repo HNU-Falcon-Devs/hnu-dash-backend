@@ -18,7 +18,7 @@ As of 2026-11-26, [Backend main CI](https://github.com/HNU-Falcon-Devs/hnu-dash-
 
 Historical [Backend PR #2](https://github.com/HNU-Falcon-Devs/hnu-dash-backend/pull/2) was closed without approval and superseded. Implemented operations are documented in [Milestone 1 Web integration](docs/integration/milestone-1-web.md), [Milestone 2, Part 1](docs/integration/milestone-2-part-1.md), and [Milestone 2.3 online scan ingestion](docs/integration/milestone-2-part-3-scan-ingestion.md); the MVP uses Supabase Auth. See the [M2.6 integration QA status](docs/qa/m2-6-integration-status.md) for verified scope, limits, and next acceptance tests.
 
-The additive [offline-first B1 foundation](docs/integration/offline-first-b1-foundation.md) defines fixture-only policy v2 lifecycle/preparation. It does not enable successor events for ordinary users, change v1 evidence, or authorize capture, synchronization, reconciliation or finalization before B2 and coordinated consumer acceptance.
+The additive [offline-first B1 foundation](docs/integration/offline-first-b1-foundation.md) defines fixture-only policy v2 lifecycle/preparation. The [offline-first B2 reconciliation contract](docs/integration/offline-first-b2-reconciliation.md) adds the fixture-only evidence-to-finalization Backend candidate. Neither enables ordinary successor events, changes v1 evidence, or authorizes consumer activation or real attendance. B2 requires independent review and coordinated consumer acceptance; CI evidence is recorded separately.
 
 ## Pilot delivery direction
 
