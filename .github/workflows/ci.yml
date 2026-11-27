@@ -23,6 +23,15 @@ jobs:
         run: python3 -m unittest discover -s test -p 'test_*.py' -v
       - name: Start local Supabase
         run: npm run supabase -- start
+      - name: Verify existing memberships survive upgrade
+        env:
+          HNU_DASH_ISOLATED_TEST_DB: '1'
+        run: |
+          node --check scripts/test_verified_membership.mjs
+          npm run supabase -- db reset --version 20261127054432
+          node scripts/test_verified_membership.mjs upgrade-seed
+          npm run supabase -- migration up --local
+          node scripts/test_verified_membership.mjs upgrade-check
       - name: Reset and lint database
         run: |
           npm run supabase -- db reset
@@ -53,6 +62,10 @@ jobs:
         env:
           HNU_DASH_ISOLATED_TEST_DB: '1'
         run: python3 scripts/test_offline_reconciliation_races.py
+      - name: Verify signed membership intents and concurrency
+        env:
+          HNU_DASH_ISOLATED_TEST_DB: '1'
+        run: node scripts/test_verified_membership.mjs
       - name: Stop local Supabase
         if: always()
         run: npm run supabase -- stop
