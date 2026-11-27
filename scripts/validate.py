@@ -25,13 +25,3 @@ for path in MIGRATIONS.iterdir():
         assert re.fullmatch(r"\d{14}_[a-z0-9_]+\.sql", path.name), path.name
 
 print("Supabase configuration and migration layout valid")
-
-# Temporary B1 migration-name generation on the disposable GitHub runner.
-import os
-import subprocess
-if os.environ.get("GITHUB_ACTIONS") == "true":
-    before = set(MIGRATIONS.glob("*.sql"))
-    subprocess.run(["npm", "run", "supabase", "--", "migration", "new", "offline_first_foundation"], cwd=ROOT, check=True)
-    generated, = set(MIGRATIONS.glob("*.sql")) - before
-    print(f"B1_GENERATED_MIGRATION={generated.name}", flush=True)
-    generated.unlink()
