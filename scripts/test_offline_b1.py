@@ -113,7 +113,7 @@ def snapshot():
         ("checkpoints", "public.event_checkpoints", "event_id", "id", "to_jsonb(x)"),
         ("roster", "public.event_roster", "event_id", "event_id,student_id", "to_jsonb(x)"),
         ("assignments", "public.event_staff", "event_id", "id", "to_jsonb(x)"),
-        ("scans", "public.attendance_scans", "event_id", "scan_id", "to_jsonb(x)"),
+        ("scans", "public.attendance_scans", "event_id", "scan_id", "to_jsonb(x)-'successor_capture_id'"),
         ("preparations", "public.offline_preparations", "event_id", "id", "to_jsonb(x)"),
         ("claims", "public.offline_capture_claims", "event_id", "capture_id", "to_jsonb(x)"),
         ("records", "public.attendance_records", "event_id", "event_id,student_id", "to_jsonb(x)"),
@@ -177,6 +177,9 @@ from public.event_checkpoints where id='{C(103)}';
         assert snapshot() == before["snapshot"], "Legacy row identity or data changed"
         assert sql(f"select count(*) from public.events where organization_id='{ORG}' and policy_version=1 and sync_deadline is null;") == "3"
         assert sql("select count(*) from offline_b1_private.preparations;") == "0"
+        # B2 adds nullable provenance; no legacy row may acquire it.
+        if sql("select exists(select 1 from information_schema.columns where table_schema='public' and table_name='attendance_scans' and column_name='successor_capture_id');") == "t":
+            assert sql("select count(*) from public.attendance_scans where successor_capture_id is not null;") == "0"
         same_receipt(before["prep"], rpc(STAFF, legacy_prepare()))
         same_receipt(before["claim"], rpc(STAFF, legacy_claim(before["prep"])))
         same_receipt(before["scan"], rpc(STAFF, legacy_scan()))
